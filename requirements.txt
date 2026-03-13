@@ -12,8 +12,9 @@ praw>=7.7.0
 # ─── Vector database (Nanobot VPS Qdrant) ─────────────────────────────────────
 qdrant-client>=1.9.0
 
-# ─── LLM inference (Ollama local API) ─────────────────────────────────────────
-requests>=2.31.0
+# ─── LLM inference (MLX — Apple Silicon native) ───────────────────────────────
+mlx-lm>=0.20.0          # local Qwen3.5 inference, no server required
+requests>=2.31.0        # used by NewsAPI and Slack webhook
 
 # ─── Market data & portfolio math ──────────────────────────────────────────────
 yfinance>=0.2.40

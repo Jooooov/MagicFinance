@@ -5,6 +5,26 @@
 
 ---
 
+## ✅ Decisão de Arquitectura Resolvida: MLX (migrado)
+
+O código actual usa **Qwen via Ollama** (`llm_client.py`), mas o setup real desta máquina é:
+
+| Configuração actual no código | Setup real da máquina |
+|---|---|
+| `ollama pull qwen2.5:9b` | **DeepSeek-R1-0528-Qwen3-8B-8bit via MLX** |
+| `http://localhost:11434` (Ollama REST) | `mlx_lm.generate()` (Python directo, zero latência de rede) |
+| Qwen2.5 9B + 4B | DeepSeek-R1 8B (reasoning + thinking mode) |
+
+**Recomendação**: Migrar `llm_client.py` para usar MLX directamente (como o Wisdom Council). Vantagens:
+- Sem servidor Ollama a arrancar
+- ~25-30 tokens/sec (mais rápido)
+- Thinking mode nativo (melhor qualidade de scoring)
+- Consistente com todos os outros projectos
+
+**Acção necessária**: Confirmar com o utilizador se quer migrar para MLX ou manter Ollama.
+
+---
+
 ## Estado Geral
 
 | Componente | Estado | Notas |
@@ -58,16 +78,12 @@
 
 ### P0 — Bloqueadores (sem isto nada corre)
 
-- [ ] **Criar `.env`** com as credenciais:
+- [x] **Criar `.env`** com as credenciais (Reddit preenchido; NewsAPI + Slack em falta):
   - `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` → https://www.reddit.com/prefs/apps (criar app "script")
   - `NEWSAPI_KEY` → https://newsapi.org/register (free tier)
   - `SLACK_WEBHOOK_URL` → reutilizar o webhook do Nanobot (já existe)
 
-- [ ] **Verificar modelos Qwen no Ollama local**:
-  ```bash
-  ollama list  # deve mostrar qwen2.5:9b e qwen2.5:4b
-  # Se faltar: ollama pull qwen2.5:9b && ollama pull qwen2.5:4b
-  ```
+- [x] **Modelos MLX verificados** — `Qwen3.5-9B-4bit` + `Qwen3.5-4B-4bit` em `~/Desktop/Apps/MLX/` ✅
 
 - [ ] **Confirmar Tailscale ativo** (necessário para Qdrant no VPS):
   ```bash

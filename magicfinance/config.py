@@ -20,17 +20,16 @@ COLLECTION_RAW_REDDIT = "magicfinance_raw_reddit"
 # Vector dimension for embeddings (text-embedding-3-small compatible, or use simple hash)
 VECTOR_DIM = 384
 
-# ─── LLM Models (Ollama/MLX — running locally) ─────────────────────────────────
+# ─── LLM Models (MLX — Apple Silicon native, no server required) ──────────────
 
-# Qwen 9B: complex structured scoring (Module A) and dynamic weight reasoning (Module E)
-MODEL_9B = "qwen2.5:9b"
+# Models live at ~/Desktop/Apps/MLX/ — paths used directly by llm_client.py
+# Qwen3.5 9B: complex structured scoring (Module A) and dynamic weights (Module E)
+MODEL_9B = "Qwen3.5-9B-4bit"   # informational; actual path resolved in llm_client.py
 
-# Qwen 4B: binary probability forecasting (Module D) — faster, lighter
-MODEL_4B = "qwen2.5:4b"
+# Qwen3.5 4B: binary probability forecasting (Module D) — faster, lighter
+MODEL_4B = "Qwen3.5-4B-4bit"   # informational; actual path resolved in llm_client.py
 
-# Ollama endpoint
-OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_TIMEOUT = 120  # seconds — 9B can be slow
+# No Ollama server needed — MLX loads models directly via Python import
 
 # ─── Reddit Scraping ────────────────────────────────────────────────────────────
 

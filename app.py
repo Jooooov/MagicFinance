@@ -2132,17 +2132,21 @@ def _render_arena_tab(qdrant_ok: bool) -> None:
 # ─── Watchdog Tab ─────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=300)
-def _load_watchdog_signals() -> list[dict]:
-    """Load only investable signals (watchdog picks)."""
+def _load_watchdog_signals() -> tuple[list[dict], bool]:
+    """Load watchdog signals. Returns (signals, is_fallback).
+    Primary: is_investable=True. Fallback: all signals sorted by confidence."""
     try:
         from magicfinance.qdrant_client import get_investable_signals, get_all_signals
         sigs = get_investable_signals()
-        if not sigs:
-            # fallback: all signals filtered locally
-            sigs = [s for s in get_all_signals(limit=500) if s.get("is_investable")]
-        return sorted(sigs, key=lambda s: s.get("signal_timestamp", ""), reverse=True)
+        if sigs:
+            return sorted(sigs, key=lambda s: s.get("signal_timestamp", ""), reverse=True), False
+        # fallback — no investable signals, show all sorted by confidence
+        all_sigs = get_all_signals(limit=500)
+        if all_sigs:
+            return sorted(all_sigs, key=lambda s: s.get("confidence_level", 0), reverse=True), True
+        return [], False
     except Exception:
-        return []
+        return [], False
 
 
 @st.cache_data(ttl=300)
@@ -2156,22 +2160,28 @@ def _load_ticker_forecasts(ticker: str) -> list[dict]:
 
 
 def _render_watchdog_tab(params: dict) -> None:
-    """Watchdog: investable tickers only, history, price chart with signal overlay, prediction accuracy."""
-    signals = _load_watchdog_signals()
+    """Watchdog: investable tickers only (with fallback to all signals), history, price chart with signal overlay."""
+    signals, is_fallback = _load_watchdog_signals()
 
     if not signals:
         st.markdown(
-            '<div class="demo-banner">⚠ No investable signals found — run Module A and wait for scoring</div>',
+            '<div class="demo-banner">⚠ No signals found — run Module A to populate the watchdog</div>',
             unsafe_allow_html=True,
         )
-        # show demo placeholder
         st.markdown(
             '<div style="font-family:\'Share Tech Mono\',monospace;color:#484f58;font-size:13px;margin-top:24px;text-align:center;">'
-            '// WATCHDOG OFFLINE — NO INVESTABLE TICKERS IN NEURAL DATABASE //'
+            '// WATCHDOG OFFLINE — NO TICKERS IN NEURAL DATABASE //'
             '</div>',
             unsafe_allow_html=True,
         )
         return
+
+    if is_fallback:
+        st.markdown(
+            '<div class="demo-banner" style="background:#1a1a2e;border-color:#30363d;color:#8b949e;">'
+            '⚠ No confirmed investable signals yet — showing all scored tickers (run Module A with Qwen 9B to get full analysis)</div>',
+            unsafe_allow_html=True,
+        )
 
     # ── Ticker overview cards ─────────────────────────────────────────────────
     # Group by ticker, pick most recent per ticker
@@ -2183,9 +2193,10 @@ def _render_watchdog_tab(params: dict) -> None:
 
     tickers_sorted = sorted(ticker_map.keys())
 
+    mode_label = "ALL SCORED TICKERS (FALLBACK)" if is_fallback else "INVESTABLE TICKERS"
     st.markdown(
         f'<div style="font-family:\'Share Tech Mono\',monospace;font-size:11px;color:#484f58;'
-        f'letter-spacing:1px;margin-bottom:12px;">// WATCHDOG PICKS · {len(tickers_sorted)} INVESTABLE TICKERS</div>',
+        f'letter-spacing:1px;margin-bottom:12px;">// WATCHDOG PICKS · {len(tickers_sorted)} {mode_label}</div>',
         unsafe_allow_html=True,
     )
 
@@ -2252,11 +2263,16 @@ def _render_watchdog_tab(params: dict) -> None:
     conf = latest_sig.get("confidence_level", 0)
     subreddit = latest_sig.get("source_subreddit", "unknown")
 
+    pick_badge = (
+        '<span style="color:#00d4aa;font-size:11px;margin-left:12px;">● WATCHDOG PICK</span>'
+        if not is_fallback else
+        '<span style="color:#d29922;font-size:11px;margin-left:12px;">◆ CANDIDATE</span>'
+    )
     st.markdown(
         f'<div style="font-family:\'Share Tech Mono\',monospace;margin-bottom:12px;">'
         f'<span style="font-size:32px;color:{v_color};font-weight:700;">{selected}</span>'
         f'<span style="font-size:16px;color:{v_color};margin-left:12px;">{v_icon} {verdict}</span>'
-        f'<span style="color:#00d4aa;font-size:11px;margin-left:12px;">● WATCHDOG PICK</span>'
+        f'{pick_badge}'
         f'<div style="font-size:11px;color:#484f58;margin-top:2px;">'
         f'r/{subreddit} · conf: {conf:.0%} · {len(ticker_signals)} historical signal{"s" if len(ticker_signals)>1 else ""}'
         f'</div></div>',

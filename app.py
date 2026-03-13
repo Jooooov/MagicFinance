@@ -16,6 +16,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 # ─── Page config (must be first Streamlit call) ───────────────────────────────
 
@@ -203,6 +204,88 @@ st.markdown(
         font-weight: 700;
     }
 
+    /* ── Fade in up (staggered card entry) ── */
+    @keyframes fadeInUp {
+        from { opacity:0; transform:translateY(20px); }
+        to   { opacity:1; transform:translateY(0); }
+    }
+    .inv-card {
+        animation: fadeInUp 0.5s ease-out both;
+    }
+    /* Stagger delays 0–9 */
+    .inv-card:nth-child(1)  { animation-delay:.05s; }
+    .inv-card:nth-child(2)  { animation-delay:.10s; }
+    .inv-card:nth-child(3)  { animation-delay:.15s; }
+    .inv-card:nth-child(4)  { animation-delay:.20s; }
+    .inv-card:nth-child(5)  { animation-delay:.25s; }
+    .inv-card:nth-child(6)  { animation-delay:.30s; }
+    .inv-card:nth-child(7)  { animation-delay:.35s; }
+    .inv-card:nth-child(8)  { animation-delay:.40s; }
+    .inv-card:nth-child(9)  { animation-delay:.45s; }
+    .inv-card:nth-child(10) { animation-delay:.50s; }
+
+    /* ── Hover glow on cards ── */
+    .inv-card:hover {
+        border-color: #00d4aa80 !important;
+        box-shadow: 0 0 20px #00d4aa15, 0 4px 20px #00000060;
+        transform: translateY(-2px);
+        transition: all 0.25s ease;
+    }
+
+    /* ── Shimmer on metric values ── */
+    @keyframes shimmer {
+        0%   { background-position: -200% center; }
+        100% { background-position:  200% center; }
+    }
+    .shimmer-text {
+        background: linear-gradient(90deg,
+            #e6edf3 0%, #00d4aa 40%, #ffffff 50%, #00d4aa 60%, #e6edf3 100%);
+        background-size: 200% auto;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        animation: shimmer 3s linear infinite;
+    }
+
+    /* ── Flicker for danger/red items ── */
+    @keyframes flicker {
+        0%,19%,21%,23%,25%,54%,56%,100% { opacity:1; }
+        20%,22%,24%,55% { opacity:0.4; }
+    }
+    .flicker { animation: flicker 4s linear infinite; }
+
+    /* ── Typewriter cursor ── */
+    @keyframes type-cursor {
+        0%,100% { border-right-color:#00d4aa; }
+        50%     { border-right-color:transparent; }
+    }
+    .intel-header::after {
+        content:'_';
+        animation: type-cursor 1s step-end infinite;
+        color:#00d4aa;
+    }
+
+    /* ── HUD ticker scroll ── */
+    @keyframes ticker-scroll {
+        0%   { transform:translateX(100%); }
+        100% { transform:translateX(-100%); }
+    }
+    .ticker-wrap {
+        overflow:hidden;
+        background:#0a0e13;
+        border-top:1px solid #21262d;
+        border-bottom:1px solid #21262d;
+        padding:4px 0;
+        font-family:'Share Tech Mono',monospace;
+        font-size:11px;
+        color:#484f58;
+        white-space:nowrap;
+    }
+    .ticker-inner {
+        display:inline-block;
+        animation: ticker-scroll 30s linear infinite;
+    }
+
     /* ── Signal verdict pill (animated for STRONG BUY) ── */
     @keyframes verdict-pulse {
         0%,100% { box-shadow:0 0 0px #00d4aa00; }
@@ -210,6 +293,31 @@ st.markdown(
     }
     .verdict-strong {
         animation: verdict-pulse 2s ease-in-out infinite;
+    }
+
+    /* ── Animated gradient border on metric card ── */
+    @keyframes border-spin {
+        0%   { --angle:0deg; }
+        100% { --angle:360deg; }
+    }
+    .metric-card:hover {
+        border-color: #00d4aa60;
+        box-shadow: 0 0 12px #00d4aa20;
+        transition: all 0.3s ease;
+    }
+
+    /* ── Pulse dot for live indicator ── */
+    @keyframes pulse-dot {
+        0%,100% { transform:scale(1);   opacity:1; }
+        50%     { transform:scale(1.5); opacity:0.6; }
+    }
+    .live-dot {
+        display:inline-block;
+        width:8px; height:8px;
+        border-radius:50%;
+        background:#00d4aa;
+        animation:pulse-dot 2s ease-in-out infinite;
+        margin-right:5px;
     }
 
     /* ── Page title ── */
@@ -375,16 +483,22 @@ _LEVELS = [
 ]
 
 
-def _investor_level(pnl_pct: float) -> tuple[str, str, str]:
-    """Return (emoji, title, hex_color) based on P&L %."""
+def _investor_level(pnl_pct: float, has_traded: bool = False) -> tuple[str, str, str]:
+    """Return (emoji, title, hex_color) based on P&L %.
+    Anyone who hasn't made a trade yet stays at RECRUIT regardless of P&L.
+    """
+    if not has_traded:
+        return "🌱", "RECRUIT", "#8b949e"
     for threshold, emoji, title, color in _LEVELS:
         if pnl_pct >= threshold:
             return emoji, title, color
     return "🌱", "RECRUIT", "#8b949e"
 
 
-def _xp_progress(pnl_pct: float) -> tuple[float, str]:
+def _xp_progress(pnl_pct: float, has_traded: bool = False) -> tuple[float, str]:
     """Return (progress 0-1, next_level_label) for XP bar rendering."""
+    if not has_traded:
+        return 0.0, "▶ SOLDIER"
     breakpoints = [-99, 0.0, 2.0, 5.0, 10.0, 9999]
     labels = ["RECRUIT", "SOLDIER", "VETERAN", "ELITE", "LEGEND"]
     for i in range(len(breakpoints) - 1):
@@ -1532,9 +1646,11 @@ def _render_arena_tab(qdrant_ok: bool) -> None:
         cash = portfolio.get("cash", INITIAL_CAPITAL)
         n_holdings = len(portfolio.get("holdings", {}))
 
-        # RPG level
-        lvl_emoji, lvl_title, lvl_color = _investor_level(pnl)
-        xp_progress, xp_next = _xp_progress(pnl)
+        # RPG level — only promoted from RECRUIT after first trade
+        inv_trades = [e for e in sim_events if e.get("investor_id") == inv_id and e.get("action") in ("BUY", "SELL")]
+        has_traded = len(inv_trades) > 0
+        lvl_emoji, lvl_title, lvl_color = _investor_level(pnl, has_traded)
+        xp_progress, xp_next = _xp_progress(pnl, has_traded)
         xp_pct = int(xp_progress * 100)
 
         # Achievements
@@ -1610,6 +1726,34 @@ def _render_arena_tab(qdrant_ok: bool) -> None:
                 """,
                 unsafe_allow_html=True,
             )
+            # Character profile popover
+            risk_colors = {
+                "very_low": "#8b949e", "low": "#6e9eff", "medium": "#d29922",
+                "high": "#ff8c00", "very_high": "#f85149", "bimodal": "#c678dd",
+            }
+            risk_col = risk_colors.get(investor["risk_tolerance"], "#8b949e")
+            with st.popover(f"📋 {investor['name']}", use_container_width=True):
+                st.markdown(
+                    f"**{investor['emoji']} {investor['name']}**  \n"
+                    f"*Inspired by MobLand (Paramount+, 2025)*"
+                )
+                st.markdown(f"**Class:** {investor['style']}")
+                st.markdown(
+                    f"**Risk tolerance:** "
+                    f"<span style='color:{risk_col};font-weight:700;'>"
+                    f"{investor['risk_tolerance'].upper().replace('_',' ')}</span>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(f"**Max single bet:** {investor['max_single_bet_pct']*100:.0f}% of portfolio")
+                st.divider()
+                st.markdown(f"**Personality**  \n_{investor['personality']}_")
+                st.markdown(f"**Strategy**  \n{investor['strategy']}")
+                st.divider()
+                st.markdown(
+                    f"**Level:** {lvl_emoji} {lvl_title}  \n"
+                    f"**P&L:** :{'green' if pnl >= 0 else 'red'}[{pnl:+.2f}%]  \n"
+                    f"**Portfolio value:** €{value:.2f}"
+                )
 
     # ── Performance chart ─────────────────────────────────────────────────────
     st.markdown(
@@ -1727,13 +1871,14 @@ def main() -> None:
     st.markdown(
         f"""
         <div style="margin-bottom:4px;">
-          <span class="cp-title">MAGICFINANCE</span>
+          <span class="cp-title shimmer-text">MAGICFINANCE</span>
         </div>
         <div class="cp-subtitle">NEURAL INVESTMENT INTERFACE · REDDIT SIGNAL PIPELINE</div>
         <div class="market-hud" style="margin-top:14px;">
           <div class="hud-item">
             <span class="hud-label">SYSTEM</span>
-            <span class="hud-value" style="color:{qdrant_color};">{qdrant_status}</span>
+            <span class="hud-value" style="color:{qdrant_color};">
+              <span class="live-dot" style="background:{qdrant_color};"></span>{qdrant_status.replace('● ','')}</span>
           </div>
           <div class="hud-item">
             <span class="hud-label">MARKET STATUS</span>
@@ -1753,6 +1898,66 @@ def main() -> None:
           </div>
         </div>
         """,
+        unsafe_allow_html=True,
+    )
+
+    # ── Matrix rain (canvas injected into parent frame via same-origin iframe) ──
+    components.html(
+        """
+        <script>
+        (function() {
+            if (parent.document.getElementById('mf-matrix-canvas')) return;
+            var canvas = parent.document.createElement('canvas');
+            canvas.id = 'mf-matrix-canvas';
+            canvas.style.cssText = [
+                'position:fixed','top:0','left:0',
+                'width:100vw','height:100vh',
+                'z-index:0','pointer-events:none','opacity:0.038',
+            ].join(';');
+            parent.document.body.appendChild(canvas);
+            var ctx = canvas.getContext('2d');
+            function resize() {
+                canvas.width  = parent.window.innerWidth;
+                canvas.height = parent.window.innerHeight;
+            }
+            resize();
+            parent.window.addEventListener('resize', resize);
+            var chars = '01アイウエカキ$€₿∑∂∞ABCDEF9873';
+            var cols  = Math.floor(canvas.width / 16);
+            var drops = Array.from({length: cols}, () => Math.random() * canvas.height / 16 | 0);
+            function draw() {
+                ctx.fillStyle = 'rgba(13,17,23,0.055)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                for (var i = 0; i < drops.length; i++) {
+                    var c = chars[Math.random() * chars.length | 0];
+                    ctx.fillStyle = Math.random() > 0.97 ? '#ffffff' : '#00d4aa';
+                    ctx.globalAlpha = Math.random() * 0.6 + 0.15;
+                    ctx.font = '13px monospace';
+                    ctx.fillText(c, i * 16, drops[i] * 16);
+                    if (drops[i] * 16 > canvas.height && Math.random() > 0.97) drops[i] = 0;
+                    drops[i]++;
+                }
+                ctx.globalAlpha = 1;
+            }
+            setInterval(draw, 55);
+        })();
+        </script>
+        """,
+        height=0,
+        scrolling=False,
+    )
+
+    # ── Ticker tape ───────────────────────────────────────────────────────────
+    tickers_live = [s.get("ticker", "") for s in signals_for_hud if s.get("ticker")]
+    tape_items = "  ·  ".join(
+        f"{t}  {s.get('confidence_level',0):.0%}" for t, s in zip(
+            tickers_live,
+            signals_for_hud,
+        )
+    ) or "NO SIGNAL DATA — RUN MODULE A TO POPULATE THE NEURAL FEED"
+    tape_text = f"▸ MAGICFINANCE NEURAL FEED  ·  {tape_items}  ·  " * 3
+    st.markdown(
+        f'<div class="ticker-wrap"><span class="ticker-inner">{tape_text}</span></div>',
         unsafe_allow_html=True,
     )
 

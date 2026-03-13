@@ -2159,6 +2159,128 @@ def _load_ticker_forecasts(ticker: str) -> list[dict]:
         return []
 
 
+def _render_watchdog_synthesis(ticker: str, sig: dict, all_sigs: list) -> None:
+    """Render an actionable synthesis block for the selected ticker."""
+    verdict   = sig.get("verdict", sig.get("recommendation", "WATCH")).upper()
+    conf      = sig.get("confidence_level", 0)
+    sent_l    = sig.get("sentiment_label", "NEUTRAL")
+    sent_s    = sig.get("sentiment_score", 0.0)
+    thesis    = sig.get("thesis_score", 0)
+    risk      = sig.get("risk_acknowledgment", 0)
+    spec      = sig.get("specificity", 0)
+    subreddit = sig.get("source_subreddit", "unknown")
+    ts        = sig.get("signal_timestamp", "")[:10]
+    n         = len(all_sigs)
+
+    # Build actionable text
+    action_map = {
+        "BUY":        ("Consider initiating a position", "#00d4aa"),
+        "STRONG BUY": ("Strong case to open/add to position", "#00d4aa"),
+        "WATCH":      ("Add to watchlist, wait for confirmation", "#d29922"),
+        "HOLD":       ("No clear edge — monitor without action", "#8b949e"),
+        "WEAK":       ("Reduce exposure or avoid", "#f85149"),
+        "SELL":       ("Consider closing / shorting", "#f85149"),
+    }
+    action_text, action_color = action_map.get(verdict, ("Monitor", "#8b949e"))
+
+    # Conviction score: combines conf + sentiment alignment + recurrence
+    sentiment_boost = abs(sent_s) * 0.15  # strong sentiment (either way) adds conviction
+    recurrence_boost = min((n - 1) * 0.05, 0.20)  # more signals = more conviction
+    conviction = min(conf + sentiment_boost + recurrence_boost, 1.0)
+    conv_color = "#00d4aa" if conviction >= 0.7 else "#d29922" if conviction >= 0.45 else "#f85149"
+    conv_pct = int(conviction * 100)
+
+    # Weakness flags
+    flags = []
+    if spec < 0.3:
+        flags.append("⚠ No price target or time horizon")
+    if risk < 0.3:
+        flags.append("⚠ Risk factors not acknowledged")
+    if n == 1:
+        flags.append("⚠ Single signal — no corroboration")
+    if sent_l == "NEUTRAL" and verdict in ("BUY", "STRONG BUY"):
+        flags.append("⚠ Bullish verdict but neutral sentiment — check thesis")
+
+    flags_html = "".join(
+        f'<div style="font-size:11px;color:#d29922;margin:2px 0;">{f}</div>' for f in flags
+    )
+
+    # Strength bullets
+    strengths = []
+    if thesis >= 0.7:
+        strengths.append("✅ Clear and structured investment thesis")
+    if risk >= 0.7:
+        strengths.append("✅ Risk factors explicitly acknowledged")
+    if spec >= 0.6:
+        strengths.append("✅ Concrete catalysts / price targets mentioned")
+    if n > 2:
+        strengths.append(f"✅ {n} independent signals corroborate this thesis")
+    if sent_l == "BULLISH" and verdict in ("BUY", "STRONG BUY", "WATCH"):
+        strengths.append("✅ Sentiment and verdict aligned (bullish)")
+    if sent_l == "BEARISH" and verdict in ("SELL", "WEAK"):
+        strengths.append("✅ Sentiment and verdict aligned (bearish)")
+
+    strengths_html = "".join(
+        f'<div style="font-size:11px;color:#8b949e;margin:2px 0;">{s}</div>' for s in strengths
+    )
+
+    st.markdown(
+        f'<div style="font-family:\'Share Tech Mono\',monospace;font-size:11px;'
+        f'color:#484f58;letter-spacing:1px;margin-bottom:8px;">// ACTIONABLE SYNTHESIS</div>',
+        unsafe_allow_html=True,
+    )
+
+    col_action, col_conviction, col_flags = st.columns([2, 1.5, 2])
+
+    with col_action:
+        st.markdown(
+            f'<div class="intel-brief" style="border-left-color:{action_color};min-height:110px;">'
+            f'<div class="intel-header" style="color:{action_color};">// RECOMMENDATION</div>'
+            f'<div style="font-size:16px;color:{action_color};font-weight:700;margin:6px 0;">'
+            f'{action_text}</div>'
+            f'<div style="font-size:11px;color:#8b949e;">'
+            f'Source: r/{subreddit} · {ts}<br>'
+            f'Conf: {conf:.0%} · Sentiment: {sent_l} ({sent_s:+.2f})'
+            f'</div>'
+            + (f'<div style="margin-top:8px;">{strengths_html}</div>' if strengths else '')
+            + f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    with col_conviction:
+        st.markdown(
+            f'<div class="intel-brief" style="border-left-color:{conv_color};min-height:110px;">'
+            f'<div class="intel-header">// CONVICTION</div>'
+            f'<div style="font-size:26px;color:{conv_color};font-weight:700;margin:6px 0;">'
+            f'{conv_pct}%</div>'
+            f'<div class="wd-bar-track" style="margin-top:6px;">'
+            f'<div class="wd-bar-fill" style="width:{conv_pct}%;background:{conv_color};"></div>'
+            f'</div>'
+            f'<div style="font-size:10px;color:#484f58;margin-top:4px;">'
+            f'conf + sentiment + recurrence'
+            f'</div></div>',
+            unsafe_allow_html=True,
+        )
+
+    with col_flags:
+        if flags:
+            st.markdown(
+                f'<div class="intel-brief" style="border-left-color:#d29922;min-height:110px;">'
+                f'<div class="intel-header" style="color:#d29922;">// CAUTION FLAGS</div>'
+                f'<div style="margin-top:6px;">{flags_html}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f'<div class="intel-brief" style="border-left-color:#00d4aa;min-height:110px;">'
+                f'<div class="intel-header" style="color:#00d4aa;">// SIGNAL QUALITY</div>'
+                f'<div style="font-size:13px;color:#00d4aa;margin-top:6px;">✅ No flags — clean signal</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+
 def _render_watchdog_tab(params: dict) -> None:
     """Watchdog: investable tickers only (with fallback to all signals), history, price chart with signal overlay."""
     signals, is_fallback = _load_watchdog_signals()
@@ -2382,7 +2504,7 @@ def _render_watchdog_tab(params: dict) -> None:
                     mode="lines",
                     line=dict(color=line_color, width=2),
                     fill="tozeroy",
-                    fillcolor=f"{line_color}15",
+                    fillcolor="rgba(0,212,170,0.06)" if line_color == "#00d4aa" else "rgba(248,81,73,0.06)",
                     name=selected,
                     hovertemplate="%{x|%Y-%m-%d}<br>$%{y:.2f}<extra></extra>",
                 ))
@@ -2497,6 +2619,10 @@ def _render_watchdog_tab(params: dict) -> None:
 
         except Exception as e:
             st.warning(f"Price fetch failed: {e}")
+
+    # ── Actionable synthesis ──────────────────────────────────────────────────
+    st.markdown("---")
+    _render_watchdog_synthesis(selected, latest_sig, ticker_signals)
 
     # ── Forecasts for this ticker ─────────────────────────────────────────────
     forecasts = _load_ticker_forecasts(selected)

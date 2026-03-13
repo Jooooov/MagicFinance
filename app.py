@@ -435,6 +435,62 @@ st.markdown(
     .wd-bar-track { flex: 1; background: #21262d; border-radius: 2px; height: 6px; }
     .wd-bar-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, #00d4aa, #00ffcc); }
     .wd-bar-val { font-size: 10px; color: #8b949e; width: 36px; text-align: right; font-family: 'Share Tech Mono', monospace; }
+    /* ── Tab navigation — full width, large, cyberpunk ── */
+    [data-testid="stTabs"] { width: 100%; }
+
+    [data-testid="stTabBar"] {
+        gap: 0 !important;
+        border-bottom: 2px solid #00d4aa40 !important;
+        padding-bottom: 0 !important;
+        width: 100% !important;
+        display: flex !important;
+        justify-content: center !important;
+    }
+
+    [data-testid="stTabBar"] > div {
+        flex: 1 !important;
+        display: flex !important;
+        justify-content: center !important;
+    }
+
+    button[data-testid="stTab"] {
+        flex: 1 !important;
+        width: 100% !important;
+        padding: 16px 8px !important;
+        font-family: 'Share Tech Mono', monospace !important;
+        font-size: 15px !important;
+        font-weight: 700 !important;
+        letter-spacing: 1.5px !important;
+        color: #484f58 !important;
+        background: #0d1117 !important;
+        border: none !important;
+        border-bottom: 2px solid transparent !important;
+        border-radius: 0 !important;
+        text-align: center !important;
+        transition: color 0.2s, border-color 0.2s, background 0.2s !important;
+    }
+
+    button[data-testid="stTab"]:hover {
+        color: #c9d1d9 !important;
+        background: #161b22 !important;
+        border-bottom: 2px solid #00d4aa60 !important;
+    }
+
+    button[data-testid="stTab"][aria-selected="true"] {
+        color: #00d4aa !important;
+        background: linear-gradient(180deg, #0d1f17 0%, #0d1117 100%) !important;
+        border-bottom: 2px solid #00d4aa !important;
+        text-shadow: 0 0 12px #00d4aa60 !important;
+    }
+
+    /* Remove default Streamlit tab underline */
+    button[data-testid="stTab"] p {
+        font-family: 'Share Tech Mono', monospace !important;
+        font-size: 15px !important;
+        font-weight: 700 !important;
+        letter-spacing: 1.5px !important;
+        margin: 0 !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,

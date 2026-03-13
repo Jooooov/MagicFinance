@@ -2337,23 +2337,8 @@ def _render_watchdog_tab(params: dict) -> None:
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    params = _render_mission_control()
-
-    if params["run_clicked"]:
-        try:
-            _run_pipeline(params["posts_per_sub"])
-        except Exception as e:
-            st.error(f"Pipeline error: {e}")
-            traceback.print_exc()
-
-    if params.get("run_d_clicked"):
-        try:
-            _run_module_d()
-        except Exception as e:
-            st.error(f"Module D error: {e}")
-            traceback.print_exc()
-
-    # ── Cyberpunk header ───────────────────────────────────────────────────────
+    # ── Cyberpunk header (renders first, above mission control) ────────────────
+    qdrant_ok_early = _probe_qdrant()
     signals_for_hud, _ = _load_signals()
     cond_icon, cond_label, cond_color = _market_condition(signals_for_hud)
     investable_count = sum(1 for s in signals_for_hud if s.get("is_investable"))
@@ -2361,8 +2346,8 @@ def main() -> None:
         sum(s.get("confidence_level", 0) for s in signals_for_hud) / len(signals_for_hud)
         if signals_for_hud else 0.0
     )
-    qdrant_status = "● ONLINE" if params["qdrant_ok"] else "● OFFLINE"
-    qdrant_color = "#00d4aa" if params["qdrant_ok"] else "#f85149"
+    qdrant_status = "● ONLINE" if qdrant_ok_early else "● OFFLINE"
+    qdrant_color = "#00d4aa" if qdrant_ok_early else "#f85149"
     now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
 
     st.markdown(
@@ -2457,6 +2442,23 @@ def main() -> None:
         f'<div class="ticker-wrap"><span class="ticker-inner">{tape_text}</span></div>',
         unsafe_allow_html=True,
     )
+
+    # ── Mission control panel (below header, above tabs) ──────────────────────
+    params = _render_mission_control()
+
+    if params["run_clicked"]:
+        try:
+            _run_pipeline(params["posts_per_sub"])
+        except Exception as e:
+            st.error(f"Pipeline error: {e}")
+            traceback.print_exc()
+
+    if params.get("run_d_clicked"):
+        try:
+            _run_module_d()
+        except Exception as e:
+            st.error(f"Module D error: {e}")
+            traceback.print_exc()
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "⚡ Neural Feed",

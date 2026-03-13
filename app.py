@@ -24,7 +24,7 @@ st.set_page_config(
     page_title="MagicFinance",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # ─── Dark theme CSS ───────────────────────────────────────────────────────────
@@ -366,6 +366,75 @@ st.markdown(
         letter-spacing: 3px;
         margin-top: 2px;
     }
+
+    /* ── Hide sidebar completely ── */
+    [data-testid="stSidebar"] { display: none !important; }
+    [data-testid="collapsedControl"] { display: none !important; }
+
+    /* ── Mission Control panel ── */
+    .mc-panel {
+        background: linear-gradient(180deg, #0d1f17 0%, #0d1117 100%);
+        border: 1px solid #00d4aa40;
+        border-top: 2px solid #00d4aa;
+        border-radius: 8px;
+        padding: 14px 20px 10px;
+        margin-bottom: 18px;
+        font-family: 'Share Tech Mono', monospace;
+    }
+    .mc-title {
+        font-size: 10px;
+        letter-spacing: 2px;
+        color: #484f58;
+        margin-bottom: 10px;
+    }
+    .mc-status-row {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #21262d;
+    }
+    .mc-status-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: #8b949e;
+    }
+    .mc-dot {
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+        flex-shrink: 0;
+    }
+    .mc-dot.on  { background: #00d4aa; box-shadow: 0 0 6px #00d4aa80; }
+    .mc-dot.off { background: #f85149; box-shadow: 0 0 6px #f8514980; }
+    .mc-dot.warn { background: #d29922; box-shadow: 0 0 6px #d2992280; }
+    .mc-sync {
+        font-size: 10px;
+        color: #484f58;
+        margin-left: auto;
+        align-self: center;
+    }
+
+    /* ── Watchdog ticker card ── */
+    .wd-card {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-left: 3px solid #00d4aa;
+        border-radius: 6px;
+        padding: 12px 16px;
+        margin-bottom: 10px;
+        transition: border-color 0.2s;
+    }
+    .wd-ticker { font-family: 'Share Tech Mono', monospace; font-size: 18px; color: #e6edf3; font-weight: 700; }
+    .wd-sub { font-size: 11px; color: #484f58; margin-bottom: 6px; }
+    .wd-bar-row { display: flex; gap: 4px; align-items: center; margin: 3px 0; }
+    .wd-bar-label { font-size: 10px; color: #8b949e; width: 90px; flex-shrink: 0; font-family: 'Share Tech Mono', monospace; }
+    .wd-bar-track { flex: 1; background: #21262d; border-radius: 2px; height: 6px; }
+    .wd-bar-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, #00d4aa, #00ffcc); }
+    .wd-bar-val { font-size: 10px; color: #8b949e; width: 36px; text-align: right; font-family: 'Share Tech Mono', monospace; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -757,29 +826,23 @@ def _demo_banner(mode: str) -> None:
     )
 
 
-# ─── Sidebar ──────────────────────────────────────────────────────────────────
+# ─── Mission Control ──────────────────────────────────────────────────────────
 
-def _render_sidebar() -> dict:
-    """Render sidebar and return user-selected parameters."""
-    st.sidebar.title("MagicFinance")
-    st.sidebar.caption("Reddit Investment Research Pipeline")
-    st.sidebar.divider()
-
-    # System status
-    st.sidebar.subheader("System Status")
+def _render_mission_control() -> dict:
+    """Render NASA-style mission control panel and return user-selected parameters."""
     qdrant_ok = _probe_qdrant()
     mlx = _load_mlx_health()
 
-    def _status(ok: bool, label: str) -> None:
-        icon = "🟢" if ok else "🔴"
-        st.sidebar.markdown(f"{icon} {label}")
+    # ── Status lights HTML ─────────────────────────────────────────────────────
+    def _dot(ok, label, extra=""):
+        cls = "on" if ok else "off"
+        return f'<div class="mc-status-item"><span class="mc-dot {cls}"></span>{label}{extra}</div>'
 
-    _status(qdrant_ok, "Qdrant (Nanobot VPS)")
-    _status(mlx.get("mlx_lm_installed", False), "mlx-lm")
-    _status(mlx.get("model_9b_exists", False), "Qwen 9B")
-    _status(mlx.get("model_4b_exists", False), "Qwen 4B")
+    mlx_ok   = mlx.get("mlx_lm_installed", False)
+    q9b_ok   = mlx.get("model_9b_exists", False)
+    q4b_ok   = mlx.get("model_4b_exists", False)
 
-    # Last sync info
+    sync_html = ""
     try:
         from magicfinance.sync import load_last_sync
         last_sync = load_last_sync()
@@ -787,53 +850,58 @@ def _render_sidebar() -> dict:
             sync_time = last_sync.get("last_sync", "")[:16].replace("T", " ")
             n_ev = last_sync.get("events_pulled", 0)
             sync_ok = last_sync.get("qdrant_ok", False)
-            sync_icon = "🔄" if sync_ok else "⚠️"
-            st.sidebar.markdown(
-                f'<div style="font-size:11px;color:#484f58;font-family:monospace;margin-top:4px;">'
-                f'{sync_icon} Last sync: {sync_time} UTC'
-                + (f'<br>↓ {n_ev} events pulled' if n_ev > 0 else '')
-                + '</div>',
-                unsafe_allow_html=True,
+            sync_cls = "on" if sync_ok else "warn"
+            ev_str = f" · ↓{n_ev} events" if n_ev > 0 else ""
+            sync_html = (
+                f'<div class="mc-sync">'
+                f'<span class="mc-dot {sync_cls}" style="width:6px;height:6px;"></span>'
+                f' LAST SYNC {sync_time} UTC{ev_str}'
+                f'</div>'
             )
     except Exception:
         pass
 
-    if not qdrant_ok:
-        if st.sidebar.button("🔄 Reconnect", use_container_width=True):
-            _probe_qdrant.clear()
-            _load_signals.clear()
-            _load_forecasts.clear()
-            _load_investable.clear()
-            st.rerun()
-
-    st.sidebar.divider()
-
-    # Filters
-    st.sidebar.subheader("Filters")
-    min_confidence = st.sidebar.slider(
-        "Min confidence", min_value=0.0, max_value=1.0, value=0.0, step=0.05
+    st.markdown(
+        f"""<div class="mc-panel">
+          <div class="mc-title">// MISSION CONTROL</div>
+          <div class="mc-status-row">
+            {_dot(qdrant_ok, "QDRANT")}
+            {_dot(mlx_ok,   "MLX-LM")}
+            {_dot(q9b_ok,   "QWEN-9B")}
+            {_dot(q4b_ok,   "QWEN-4B")}
+            {sync_html}
+          </div>
+        </div>""",
+        unsafe_allow_html=True,
     )
-    investable_only = st.sidebar.checkbox("Investable only", value=False)
 
-    st.sidebar.divider()
-
-    # Run pipeline
-    st.sidebar.subheader("Module A — Reddit Scorer")
-    posts_per_sub = st.sidebar.slider(
-        "Posts per subreddit", min_value=1, max_value=20, value=3
-    )
+    # ── Interactive controls row ───────────────────────────────────────────────
+    c1, c2, c3, c4, c5, c6 = st.columns([2, 1.2, 1.5, 1.5, 1.5, 1.5])
+    with c1:
+        min_confidence = st.slider("Min confidence", 0.0, 1.0, 0.0, 0.05, label_visibility="collapsed",
+                                   help="Min confidence threshold")
+        st.caption(f"⚙ Min confidence: {min_confidence:.2f}")
+    with c2:
+        investable_only = st.checkbox("Investable only", value=False)
+    with c3:
+        posts_per_sub = st.slider("Posts/sub", 1, 20, 3, label_visibility="collapsed", help="Posts per subreddit")
+        st.caption(f"⚙ Posts/sub: {posts_per_sub}")
 
     run_clicked = False
     run_d_clicked = False
     if not qdrant_ok:
-        st.sidebar.warning("Qdrant offline — pipeline disabled")
+        with c4:
+            if st.button("🔄 Reconnect", use_container_width=True):
+                _probe_qdrant.clear()
+                _load_signals.clear()
+                _load_forecasts.clear()
+                _load_investable.clear()
+                st.rerun()
     else:
-        run_clicked = st.sidebar.button("▶ Run Module A", use_container_width=True)
-        st.sidebar.caption("Scrape Reddit → score with Qwen → store signals")
-        st.sidebar.divider()
-        st.sidebar.subheader("Module D — Forecast Generator")
-        run_d_clicked = st.sidebar.button("▶ Run Module D", use_container_width=True)
-        st.sidebar.caption("Generate binary forecasts from investable signals")
+        with c4:
+            run_clicked = st.button("▶ MODULE A", use_container_width=True, help="Scrape Reddit → score with Qwen → store signals")
+        with c5:
+            run_d_clicked = st.button("▶ MODULE D", use_container_width=True, help="Generate binary forecasts from investable signals")
 
     return {
         "min_confidence": min_confidence,
@@ -865,12 +933,12 @@ def _run_pipeline(posts_per_sub: int) -> None:
         filtered = filter_posts_with_tickers(posts)
 
     if not filtered:
-        st.sidebar.info("No posts with recognisable tickers found.")
+        st.info("No posts with recognisable tickers found.")
         return
 
     stored = 0
     errors = []
-    progress = st.sidebar.progress(0, text="Scoring posts…")
+    progress = st.progress(0, text="Scoring posts…")
     for i, post in enumerate(filtered):
         text = f"{post.get('title', '')} {post.get('selftext', '')}"
         tickers = post.get("detected_tickers") or post.get("tickers", [])
@@ -895,13 +963,13 @@ def _run_pipeline(posts_per_sub: int) -> None:
 
     progress.empty()
     if stored > 0:
-        st.sidebar.success(f"Stored {stored}/{len(filtered)} signal(s) in Qdrant.")
+        st.success(f"Stored {stored}/{len(filtered)} signal(s) in Qdrant.")
         _load_signals.clear()
         _load_investable.clear()
     else:
-        st.sidebar.error(f"Stored 0/{len(filtered)} — all failed.")
+        st.error(f"Stored 0/{len(filtered)} — all failed.")
     if errors:
-        with st.sidebar.expander(f"⚠️ {len(errors)} error(s)"):
+        with st.expander(f"⚠️ {len(errors)} error(s)"):
             for err in errors[:10]:
                 st.code(err)
 
@@ -929,13 +997,13 @@ def _run_module_d() -> None:
             signals = get_all_signals(limit=100)
 
     if not signals:
-        st.sidebar.info("No signals in Qdrant. Run Module A first.")
+        st.info("No signals in Qdrant. Run Module A first.")
         return
 
-    st.sidebar.info(f"Using {len(signals)} signal(s) for forecasting.")
+    st.info(f"Using {len(signals)} signal(s) for forecasting.")
 
     total_forecasts = 0
-    progress = st.sidebar.progress(0, text="Generating forecasts…")
+    progress = st.progress(0, text="Generating forecasts…")
 
     for i, signal in enumerate(signals[:10]):  # cap at 10 signals to avoid RAM pressure
         ticker = signal.get("ticker", "")
@@ -960,12 +1028,12 @@ def _run_module_d() -> None:
                 upsert_forecast(forecast)
                 total_forecasts += 1
         except Exception as e:
-            st.sidebar.warning(f"{ticker}: {e}")
+            st.warning(f"{ticker}: {e}")
 
         progress.progress((i + 1) / min(len(signals), 10), text=f"Forecasting {ticker}…")
 
     progress.empty()
-    st.sidebar.success(f"Generated {total_forecasts} forecast(s) from {min(len(signals), 10)} signals.")
+    st.success(f"Generated {total_forecasts} forecast(s) from {min(len(signals), 10)} signals.")
     _load_forecasts.clear()
 
 
@@ -2061,23 +2129,228 @@ def _render_arena_tab(qdrant_ok: bool) -> None:
             st.info("No BUY/SELL decisions yet. Run a tick to start.")
 
 
+# ─── Watchdog Tab ─────────────────────────────────────────────────────────────
+
+def _render_watchdog_tab(params: dict) -> None:
+    """Show Reddit signals as ticker cards with price chart + full DDD breakdown."""
+    signals, is_demo = _load_signals()
+
+    if is_demo:
+        st.markdown(
+            '<div class="demo-banner">⚠ DEMO MODE — connect Qdrant to see live watchdog data</div>',
+            unsafe_allow_html=True,
+        )
+
+    if not signals:
+        st.info("No signals found. Run Module A to populate.")
+        return
+
+    # Apply filters
+    min_conf = params.get("min_confidence", 0.0)
+    inv_only = params.get("investable_only", False)
+    filtered = [s for s in signals if s.get("confidence_level", 0) >= min_conf]
+    if inv_only:
+        filtered = [s for s in filtered if s.get("is_investable")]
+
+    if not filtered:
+        st.warning("No signals match current filters.")
+        return
+
+    # ── Ticker selector ──────────────────────────────────────────────────────
+    tickers = list({s.get("ticker", "") for s in filtered if s.get("ticker")})
+    tickers.sort()
+
+    col_sel, col_info = st.columns([2, 5])
+    with col_sel:
+        st.markdown(
+            '<div style="font-family:\'Share Tech Mono\',monospace;font-size:11px;color:#484f58;'
+            'letter-spacing:1px;margin-bottom:4px;">// SELECT TICKER</div>',
+            unsafe_allow_html=True,
+        )
+        selected = st.selectbox("Ticker", tickers, label_visibility="collapsed")
+
+    # Filter to selected ticker signals
+    ticker_signals = [s for s in filtered if s.get("ticker") == selected]
+    if not ticker_signals:
+        st.info("No signals for selected ticker.")
+        return
+    sig = ticker_signals[0]  # most recent
+
+    verdict_map = {
+        "STRONG BUY": ("#00d4aa", "▲▲"),
+        "BUY":        ("#39d353", "▲"),
+        "WATCH":      ("#d29922", "◆"),
+        "HOLD":       ("#8b949e", "■"),
+        "WEAK":       ("#f85149", "▼"),
+        "SELL":       ("#f85149", "▼▼"),
+    }
+    verdict = sig.get("verdict", sig.get("recommendation", "WATCH")).upper()
+    v_color, v_icon = verdict_map.get(verdict, ("#8b949e", "■"))
+
+    with col_info:
+        conf = sig.get("confidence_level", 0)
+        subreddit = sig.get("source_subreddit", "unknown")
+        ts = sig.get("signal_timestamp", "")[:16].replace("T", " ")
+        is_inv = sig.get("is_investable", False)
+        inv_badge = '<span style="color:#00d4aa;font-size:11px;margin-left:8px;">● INVESTABLE</span>' if is_inv else ""
+        st.markdown(
+            f'<div style="font-family:\'Share Tech Mono\',monospace;">'
+            f'<span style="font-size:28px;color:{v_color};font-weight:700;">{selected}</span>'
+            f'<span style="font-size:16px;color:{v_color};margin-left:12px;">{v_icon} {verdict}</span>'
+            f'{inv_badge}'
+            f'<div style="font-size:11px;color:#484f58;margin-top:2px;">r/{subreddit} · {ts} UTC · conf: {conf:.0%}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
+
+    left, right = st.columns([3, 2])
+
+    # ── Score breakdown ──────────────────────────────────────────────────────
+    with left:
+        st.markdown(
+            '<div style="font-family:\'Share Tech Mono\',monospace;font-size:11px;'
+            'color:#484f58;letter-spacing:1px;margin-bottom:8px;">// DUE DILIGENCE BREAKDOWN</div>',
+            unsafe_allow_html=True,
+        )
+        score_fields = [
+            ("confidence_level",   "CONFIDENCE"),
+            ("thesis_score",       "THESIS"),
+            ("risk_acknowledgment","RISK ACK"),
+            ("data_quality",       "DATA QUALITY"),
+            ("specificity",        "SPECIFICITY"),
+            ("original_thinking",  "ORIGINALITY"),
+        ]
+        bars_html = ""
+        for key, label in score_fields:
+            val = sig.get(key, 0)
+            pct = int(val * 100)
+            color = "#00d4aa" if val >= 0.7 else "#d29922" if val >= 0.4 else "#f85149"
+            bars_html += (
+                f'<div class="wd-bar-row">'
+                f'<span class="wd-bar-label">{label}</span>'
+                f'<div class="wd-bar-track"><div class="wd-bar-fill" style="width:{pct}%;background:{color};"></div></div>'
+                f'<span class="wd-bar-val">{val:.2f}</span>'
+                f'</div>'
+            )
+        st.markdown(f'<div class="wd-card">{bars_html}</div>', unsafe_allow_html=True)
+
+        # Thesis summary
+        thesis = sig.get("thesis_summary", sig.get("summary", ""))
+        if thesis:
+            st.markdown(
+                f'<div class="intel-brief">'
+                f'<div class="intel-header">// THESIS</div>'
+                f'{thesis}'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+        # Risk factors
+        risks = sig.get("risk_factors", [])
+        if risks:
+            risk_items = "".join(f"<li style='margin:3px 0;'>{r}</li>" for r in risks[:5])
+            st.markdown(
+                f'<div class="intel-brief" style="border-left-color:#f85149;">'
+                f'<div class="intel-header" style="color:#f85149;">// RISK FACTORS</div>'
+                f'<ul style="margin:6px 0 0 16px;padding:0;">{risk_items}</ul>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    # ── Price chart ──────────────────────────────────────────────────────────
+    with right:
+        st.markdown(
+            '<div style="font-family:\'Share Tech Mono\',monospace;font-size:11px;'
+            'color:#484f58;letter-spacing:1px;margin-bottom:8px;">// PRICE CHART (30D)</div>',
+            unsafe_allow_html=True,
+        )
+        try:
+            from magicfinance.yfinance_client import fetch_prices
+            price_df = fetch_prices([selected], lookback_days=30)
+            if not price_df.empty and selected in price_df.columns:
+                prices = price_df[selected].dropna()
+                fig = go.Figure()
+                pct_chg = (prices.iloc[-1] - prices.iloc[0]) / prices.iloc[0] if len(prices) > 1 else 0
+                line_color = "#00d4aa" if pct_chg >= 0 else "#f85149"
+                fig.add_trace(go.Scatter(
+                    x=prices.index, y=prices.values,
+                    mode="lines",
+                    line=dict(color=line_color, width=2),
+                    fill="tozeroy",
+                    fillcolor=f"{line_color}15",
+                    name=selected,
+                ))
+                fig.update_layout(
+                    template="plotly_dark",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    margin=dict(l=0, r=0, t=20, b=0),
+                    height=220,
+                    showlegend=False,
+                    xaxis=dict(showgrid=False, color="#484f58"),
+                    yaxis=dict(showgrid=True, gridcolor="#21262d", color="#484f58"),
+                    annotations=[dict(
+                        x=0.02, y=0.95, xref="paper", yref="paper",
+                        text=f"{'▲' if pct_chg>=0 else '▼'} {pct_chg:+.1%} (30d)",
+                        showarrow=False,
+                        font=dict(color=line_color, size=13, family="Share Tech Mono"),
+                    )],
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No price data available for this ticker.")
+        except Exception as e:
+            st.warning(f"Price fetch failed: {e}")
+
+    # ── All signals for this ticker ──────────────────────────────────────────
+    if len(ticker_signals) > 1:
+        st.markdown("---")
+        st.markdown(
+            f'<div style="font-family:\'Share Tech Mono\',monospace;font-size:11px;'
+            f'color:#484f58;letter-spacing:1px;margin-bottom:8px;">// ALL SIGNALS FOR {selected} ({len(ticker_signals)})</div>',
+            unsafe_allow_html=True,
+        )
+        rows = []
+        for s in ticker_signals:
+            rows.append({
+                "Timestamp": s.get("signal_timestamp", "")[:16],
+                "Subreddit": s.get("source_subreddit", ""),
+                "Confidence": s.get("confidence_level", 0),
+                "Thesis": s.get("thesis_score", 0),
+                "Investable": "✅" if s.get("is_investable") else "—",
+                "Verdict": s.get("verdict", s.get("recommendation", "")),
+            })
+        df = pd.DataFrame(rows)
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Confidence": st.column_config.ProgressColumn("Confidence", min_value=0, max_value=1),
+                "Thesis":     st.column_config.ProgressColumn("Thesis",     min_value=0, max_value=1),
+            },
+        )
+
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    params = _render_sidebar()
+    params = _render_mission_control()
 
     if params["run_clicked"]:
         try:
             _run_pipeline(params["posts_per_sub"])
         except Exception as e:
-            st.sidebar.error(f"Pipeline error: {e}")
+            st.error(f"Pipeline error: {e}")
             traceback.print_exc()
 
     if params.get("run_d_clicked"):
         try:
             _run_module_d()
         except Exception as e:
-            st.sidebar.error(f"Module D error: {e}")
+            st.error(f"Module D error: {e}")
             traceback.print_exc()
 
     # ── Cyberpunk header ───────────────────────────────────────────────────────
@@ -2185,11 +2458,12 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "⚡ Neural Feed",
         "🔮 Oracle Matrix",
         "💼 Net Worth",
         "⚔️ The Arena",
+        "📡 Watchdog",
     ])
 
     with tab1:
@@ -2203,6 +2477,9 @@ def main() -> None:
 
     with tab4:
         _render_arena_tab(params["qdrant_ok"])
+
+    with tab5:
+        _render_watchdog_tab(params)
 
 
 if __name__ == "__main__":

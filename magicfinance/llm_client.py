@@ -216,20 +216,22 @@ POST TEXT:
 
 DETECTED TICKERS: {tickers}
 
-Score the post on these five criteria (each 0.0 to 1.0):
-- thesis_clarity: Is the investment thesis clear, structured, and logically sound?
-- risk_acknowledgment: Does the author explicitly identify risks and adverse scenarios?
-- data_quality: Are claims backed by real data, numbers, or cited sources (vs pure opinion)?
-- specificity: Are catalysts, time horizons, and price targets concrete (vs vague)?
-- original_thinking: Is the analysis original, or does it just echo popular narratives?
+Score the post on these six criteria:
+- thesis_clarity (0.0–1.0): Is the investment thesis clear, structured, and logically sound?
+- risk_acknowledgment (0.0–1.0): Does the author explicitly identify risks and adverse scenarios?
+- data_quality (0.0–1.0): Are claims backed by real data, numbers, or cited sources (vs pure opinion)?
+- specificity (0.0–1.0): Are catalysts, time horizons, and price targets concrete (vs vague)?
+- original_thinking (0.0–1.0): Is the analysis original, or does it just echo popular narratives?
+- sentiment_score (-1.0 to +1.0): Author's directional stance on the ticker (-1.0=very bearish, 0.0=neutral, +1.0=very bullish)
 
 Then:
+- sentiment_label: "BULLISH" if sentiment_score > 0.2, "BEARISH" if < -0.2, else "NEUTRAL"
 - confidence_level: Overall confidence in this as an investable signal (0.0–1.0)
 - is_investable: true if confidence_level >= 0.65 AND at least 3 scores above 0.5, else false
 - primary_ticker: The single most-mentioned ticker (string, or null if none)
 
 Return ONLY valid JSON, no other text:
-{{"thesis_clarity":0.0,"risk_acknowledgment":0.0,"data_quality":0.0,"specificity":0.0,"original_thinking":0.0,"confidence_level":0.0,"is_investable":false,"primary_ticker":null,"explanation":{{"thesis_clarity":"one sentence","risk_acknowledgment":"one sentence","data_quality":"one sentence","specificity":"one sentence","original_thinking":"one sentence"}}}}"""
+{{"thesis_clarity":0.0,"risk_acknowledgment":0.0,"data_quality":0.0,"specificity":0.0,"original_thinking":0.0,"sentiment_score":0.0,"sentiment_label":"NEUTRAL","confidence_level":0.0,"is_investable":false,"primary_ticker":null,"explanation":{{"thesis_clarity":"one sentence","risk_acknowledgment":"one sentence","data_quality":"one sentence","specificity":"one sentence","original_thinking":"one sentence","sentiment":"one sentence"}}}}"""
 
 
 def score_reddit_post(post_text: str, tickers: list[str]) -> dict:

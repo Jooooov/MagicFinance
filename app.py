@@ -2224,10 +2224,17 @@ def _render_watchdog_tab(params: dict) -> None:
             ts = latest.get("signal_timestamp", "")[:10]
             conf_pct = int(conf * 100)
             with col:
+                sent_s = latest.get("sentiment_score", 0.0)
+                sent_l = latest.get("sentiment_label", "NEUTRAL")
+                s_color = "#00d4aa" if sent_l == "BULLISH" else "#f85149" if sent_l == "BEARISH" else "#8b949e"
+                s_icon  = "▲" if sent_l == "BULLISH" else "▼" if sent_l == "BEARISH" else "■"
                 st.markdown(
                     f'<div class="wd-card" style="cursor:pointer;border-left-color:{v_color};">'
                     f'<div class="wd-ticker">{t}</div>'
+                    f'<div style="display:flex;justify-content:space-between;align-items:center;">'
                     f'<div class="wd-sub">{v_icon} {verdict}</div>'
+                    f'<div style="font-size:10px;color:{s_color};font-family:\'Share Tech Mono\',monospace;">{s_icon} {sent_l}</div>'
+                    f'</div>'
                     f'<div class="wd-bar-row" style="margin-top:6px;">'
                     f'<div class="wd-bar-track" style="flex:1;">'
                     f'<div class="wd-bar-fill" style="width:{conf_pct}%;background:{v_color};"></div></div>'
@@ -2283,6 +2290,31 @@ def _render_watchdog_tab(params: dict) -> None:
 
     # ── DDD Score breakdown ───────────────────────────────────────────────────
     with left_col:
+        # Sentiment badge
+        sent_score = latest_sig.get("sentiment_score", 0.0)
+        sent_label = latest_sig.get("sentiment_label", "NEUTRAL")
+        sent_color = "#00d4aa" if sent_label == "BULLISH" else "#f85149" if sent_label == "BEARISH" else "#8b949e"
+        sent_icon  = "▲" if sent_label == "BULLISH" else "▼" if sent_label == "BEARISH" else "■"
+        # Sentiment gauge: 0–100 scale centred at 50
+        sent_gauge_pct = int((sent_score + 1.0) / 2.0 * 100)  # -1→0%, 0→50%, +1→100%
+        st.markdown(
+            f'<div class="wd-card" style="margin-bottom:10px;border-left-color:{sent_color};">'
+            f'<div style="font-size:10px;color:#484f58;letter-spacing:1px;margin-bottom:6px;">SENTIMENT</div>'
+            f'<div style="display:flex;align-items:center;gap:10px;">'
+            f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:20px;color:{sent_color};font-weight:700;">'
+            f'{sent_icon} {sent_label}</span>'
+            f'<span style="font-size:12px;color:#8b949e;">({sent_score:+.2f})</span>'
+            f'</div>'
+            f'<div style="margin-top:8px;position:relative;height:8px;background:linear-gradient(90deg,#f85149,#21262d 50%,#00d4aa);border-radius:4px;">'
+            f'<div style="position:absolute;left:{sent_gauge_pct}%;top:-2px;transform:translateX(-50%);width:12px;height:12px;'
+            f'background:{sent_color};border-radius:50%;border:2px solid #0d1117;"></div>'
+            f'</div>'
+            f'<div style="display:flex;justify-content:space-between;font-size:9px;color:#484f58;margin-top:4px;">'
+            f'<span>BEARISH</span><span>NEUTRAL</span><span>BULLISH</span></div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
         st.markdown(
             '<div style="font-family:\'Share Tech Mono\',monospace;font-size:11px;'
             'color:#484f58;letter-spacing:1px;margin-bottom:8px;">// DUE DILIGENCE</div>',

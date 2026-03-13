@@ -4,16 +4,10 @@
 
 cd "$(dirname "$0")"
 
-# ─── Check venv ───────────────────────────────────────────────────────────────
-if [ ! -d "venv" ]; then
-    echo "📦 A criar ambiente virtual pela primeira vez..."
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install --quiet -r requirements.txt
-    echo "✅ Dependências instaladas"
-else
-    source venv/bin/activate
-fi
+# ─── Dependencies ─────────────────────────────────────────────────────────────
+echo "📦 A verificar dependências..."
+pip3 install --quiet -r requirements.txt
+echo "✅ Dependências OK"
 
 # ─── Check .env ───────────────────────────────────────────────────────────────
 if [ ! -f ".env" ]; then
@@ -42,12 +36,11 @@ else
 fi
 
 echo ""
-echo "🚀 A abrir MagicFinance no Jupyter..."
+echo "🚀 A abrir MagicFinance no Streamlit..."
 echo ""
 
 # OpenMP fix for Apple Silicon (prevents duplicate libomp errors)
 export KMP_DUPLICATE_LIB_OK=TRUE
 
-# Open Jupyter with the notebooks directory
-jupyter notebook notebooks/
+streamlit run app.py
 

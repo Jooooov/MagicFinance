@@ -15,6 +15,7 @@
 | API de temperatura mudou no mlx_lm 0.30+ | `make_sampler(temp=T)` passado como `sampler=` |
 | Thinking mode ligado por defeito | `enable_thinking=False` no `apply_chat_template` |
 | Conflito libomp no launcher | `KMP_DUPLICATE_LIB_OK=TRUE` no `.command` |
+| Qwen3.5 emite `<think>...</think>` antes do JSON | `_extract_decisions` strip + findall do último `[...]` |
 
 **Smoke tests: 8/9 ✅** — só Qdrant falha quando Tailscale está desligado.
 
@@ -24,16 +25,62 @@
 
 | Componente | Estado | Notas |
 |---|---|---|
-| `magicfinance/` biblioteca | ✅ Completo | 7 módulos implementados |
-| `notebooks/notebook_a.ipynb` | ✅ Implementado | Precisa de teste real |
-| `notebooks/notebook_d.ipynb` | ✅ Implementado | Precisa de teste real |
-| `notebooks/notebook_e.ipynb` | ✅ Implementado | Precisa de teste real |
+| `magicfinance/` biblioteca | ✅ Completo | 9 módulos implementados |
+| `app.py` — Streamlit Dashboard | ✅ Implementado | 4 tabs: Signals, Forecasts, Portfolio, Arena |
+| `notebooks/notebook_a.ipynb` | ✅ Implementado | Substituído pelo dashboard |
+| `notebooks/notebook_d.ipynb` | ✅ Implementado | Substituído pelo dashboard |
+| `notebooks/notebook_e.ipynb` | ✅ Implementado | Substituído pelo dashboard |
 | `vps/reddit_scraper.py` | ✅ Implementado | Precisa de deploy no VPS |
 | `vps/cleanup.sh` | ✅ Implementado | Precisa de deploy no VPS |
 | `vps/install_vps.sh` | ✅ Implementado | Ainda não correu no VPS |
-| Credenciais `.env` | ❌ Por fazer | Ver secção abaixo |
+| Credenciais `.env` | ⚠️ Parcial | Reddit ok; NewsAPI + Slack opcionais |
 | Deploy VPS | ❌ Por fazer | Ver secção abaixo |
-| Teste end-to-end | ❌ Por fazer | Requer credenciais + VPS |
+
+---
+
+## ✅ Streamlit Dashboard (`app.py`)
+
+Lançado com `MagicFinance.command` (duplo clique). Abre em `http://localhost:8501`.
+
+### 4 Tabs
+
+| Tab | O que mostra |
+|---|---|
+| **Reddit Signals** | Ticker cards com DDD (Due Diligence), verdict, thesis summary, panorama global |
+| **Forecasts** | Histórico de previsões binárias, calibração, Brier score |
+| **Portfolio** | Optimização Markowitz, pie chart de pesos, backtest vs S&P500 |
+| **Investor Arena** | 10 investidores AI tomam decisões BUY/SELL/HOLD em cada tick |
+
+### Funcionalidades Chave
+
+- **Demo mode** — fallback automático quando Qdrant está offline (sem crash)
+- **Sidebar** — botões "Run Module A" e "Run Module D", filtros de confiança
+- **Ticker Cards** — cada ticker tem: verdict (STRONG BUY / WATCH / WEAK), thesis, DDD vs yfinance
+- **Panorama Global** — síntese actionable gerada por LLM do landscape de sinais
+- **Investor Arena** — 10 personas MobLand, portfolios persistidos em `data/investor_portfolios.json`
+- **Caching** — `@st.cache_data(ttl=300)` nos loaders, `ttl=30` no probe Qdrant
+- **Tema escuro** — `#0d1117` background, `#00d4aa` accent teal, Plotly dark
+
+---
+
+## ✅ Investor Arena — 10 Personas MobLand
+
+Ficheiro: `magicfinance/investors.py`
+
+| ID | Nome | Estilo | Risco |
+|---|---|---|---|
+| harry | Harry Da Souza | Value Investing | low |
+| maeve | Maeve Harrigan | Global Macro | high |
+| eddie | Eddie Harrigan | Disruptive Innovation | very_high |
+| conrad | Conrad Harrigan | All Weather / Risk Parity | medium |
+| kevin | Kevin Harrigan | Growth at Reasonable Price | medium |
+| jan | Jan Da Souza | Quantitative | medium |
+| richie | Richie Stevenson | Deep Value / Contrarian | high |
+| vron | Vron Stevenson | Momentum / Trend Following | very_high |
+| bella | Bella Harrigan | Pure Value | very_low |
+| tommy | Tommy Stevenson | Anti-Fragile / Tail Risk | bimodal |
+
+Motor: `magicfinance/simulation.py` — `run_tick()` → BUY/SELL/HOLD por Qwen MLX → portfolios persistidos.
 
 ---
 
@@ -43,112 +90,56 @@
 
 | Ficheiro | Funcionalidade | Status |
 |---|---|---|
-| `config.py` | Todos os parâmetros: thresholds, modelos, Qdrant, Slack | ✅ |
-| `reddit_client.py` | PRAW wrapper, extração de tickers, fetch por subreddit | ✅ |
-| `llm_client.py` | Ollama wrappers: scoring (9B), forecasting (4B), dynamic weights (9B) | ✅ |
-| `qdrant_client.py` | CRUD para 3 collections: signals, forecasts, raw posts | ✅ |
+| `config.py` | Parâmetros globais + `COLLECTION_SIM_EVENTS` | ✅ |
+| `reddit_client.py` | PRAW wrapper, extração de tickers, blacklist alargada | ✅ |
+| `llm_client.py` | MLX scoring (9B), forecasting (4B), health check | ✅ |
+| `qdrant_client.py` | CRUD para 4 collections: signals, forecasts, raw posts, sim events | ✅ |
 | `slack_client.py` | Alertas para Módulos A, D, E com Block Kit formatting | ✅ |
 | `yfinance_client.py` | Preços históricos, covariance matrix, backtest P&L, benchmark S&P500 | ✅ |
 | `portfolio.py` | Markowitz optimizer, fixed/dynamic expected returns, position table | ✅ |
+| `investors.py` | 10 personas MobLand com prompts compactos | ✅ |
+| `simulation.py` | Motor de decisões BUY/SELL/HOLD, trade execution, portfolio persistence | ✅ |
 
-### Notebooks
+### Collections Qdrant
 
-| Notebook | O que faz | Status |
-|---|---|---|
-| `notebook_a.ipynb` | Fetch Reddit → Score Qwen 9B → Qdrant → Slack → visualizações | ✅ |
-| `notebook_d.ipynb` | NewsAPI + signals → Forecast Qwen 4B → Qdrant → Slack → accuracy backtest | ✅ |
-| `notebook_e.ipynb` | A/B comparison (fixed vs dynamic weights) → Markowitz → backtest P&L vs S&P → Slack | ✅ |
-
-### VPS
-
-| Ficheiro | O que faz | Status |
-|---|---|---|
-| `vps/reddit_scraper.py` | Cron diário: fetch Reddit → store Qdrant (marcado scored=False) | ✅ |
-| `vps/cleanup.sh` | Cron semanal: compress → rsync Mac via Tailscale → delete VPS | ✅ |
-| `vps/install_vps.sh` | Setup único: venv, deps, cron, permissões, dry-run test | ✅ |
+| Collection | Conteúdo |
+|---|---|
+| `magicfinance_reddit_signals` | Sinais scored pelo Module A |
+| `magicfinance_forecast_history` | Forecasts gerados pelo Module D |
+| `magicfinance_raw_reddit` | Posts brutos do VPS cron |
+| `magicfinance_sim_events` | Decisões dos 10 investidores AI |
 
 ---
 
 ## ❌ O Que Falta Fazer
 
-### P0 — Bloqueadores (sem isto nada corre)
-
-- [x] **Criar `.env`** com as credenciais (Reddit preenchido; NewsAPI + Slack em falta):
-  - `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` → https://www.reddit.com/prefs/apps (criar app "script")
-  - `NEWSAPI_KEY` → https://newsapi.org/register (free tier)
-  - `SLACK_WEBHOOK_URL` → reutilizar o webhook do Nanobot (já existe)
-
-- [x] **Modelos MLX verificados e funcionais** — `Qwen3.5-9B-4bit` + `Qwen3.5-4B-4bit` em `~/Desktop/Apps/MLX/` ✅
-  - Inferência real testada: `{"status": "ok", "value": 42}` ✅
+### P0 — Para correr agora
 
 - [ ] **Confirmar Tailscale ativo** (necessário para Qdrant no VPS):
   ```bash
   tailscale status  # deve mostrar 100.97.190.121 como peer ativo
   ```
 
+- [ ] **Criar `.env`** com Reddit credentials:
+  ```
+  REDDIT_CLIENT_ID=...
+  REDDIT_CLIENT_SECRET=...
+  REDDIT_USER_AGENT=MagicFinance/1.0
+  ```
+
 ### P1 — Deploy VPS
 
-- [ ] **Copiar ficheiros para o VPS**:
-  ```bash
-  scp -r vps/ root@76.13.66.197:/opt/magicfinance/
-  scp .env root@76.13.66.197:/opt/magicfinance/
-  ```
+- [ ] Copiar ficheiros para o VPS e correr `install_vps.sh`
+- [ ] Confirmar cron ativo para scrape diário
 
-- [ ] **Correr install_vps.sh no VPS** (instala venv, deps, cron):
-  ```bash
-  ssh root@76.13.66.197 "bash /opt/magicfinance/install_vps.sh"
-  ```
+### P2 — Melhorias Futuras
 
-- [ ] **Confirmar cron ativo** no VPS:
-  ```bash
-  ssh root@76.13.66.197 "crontab -l | grep magicfinance"
-  ```
-
-- [ ] **Primeiro scrape manual** para validar o pipeline:
-  ```bash
-  ssh root@76.13.66.197 "/opt/magicfinance/venv/bin/python /opt/magicfinance/reddit_scraper.py"
-  ```
-
-### P2 — Teste End-to-End (local)
-
-- [ ] Instalar dependências Python:
-  ```bash
-  pip install -r requirements.txt
-  ```
-
-- [ ] Correr `notebook_a.ipynb` do início ao fim sem erros
-- [ ] Confirmar que sinais aparecem no Qdrant:
-  ```python
-  from magicfinance import qdrant_client as qc
-  print(len(qc.get_all_signals()))  # deve ser > 0
-  ```
-- [ ] Correr `notebook_d.ipynb` — verificar forecasts no Qdrant
-- [ ] Correr `notebook_e.ipynb` — verificar portfolio output + Slack alert recebido
-
-### P3 — Melhorias Futuras (pós-entrevista)
-
-- [ ] **Módulo B (AI-Buffett Engine)** — requer Buffett letters (PDFs 1977–2024)
-  - Download: https://www.berkshirehathaway.com/letters/letters.html
-  - Pipeline: PDF → chunks → Qwen 9B extract principles → Buffett score 0–100
-
-- [ ] **Módulo C (Deception Detector)** — requer earnings call transcripts
-  - Fonte gratuita: SEC EDGAR 8-K filings (parsing complexo)
-  - Alternativa: Motley Fool Transcripts API (paga)
-
-- [ ] **Accuracy backtest real (Módulo D)** — requer dados acumulados ao longo do tempo
-  - Implementar mecanismo de resolução: quando um evento se resolve, atualizar Qdrant com `resolved=True` + `actual_outcome`
-  - Actualmente: backtest só funciona após semanas de dados reais
-
-- [ ] **Semantic search no Qdrant** — actualmente usa hash-vectors (não semânticos)
-  - Substituir `_text_to_vector()` por embeddings reais (ex: `nomic-embed-text` via Ollama)
-  - Permitiria busca por "encontra posts sobre value investing similares a X"
-
-- [ ] **GitHub Pages / Streamlit dashboard** — para mostrar resultados ao vivo na entrevista
-  - Alternativa mais simples: exportar notebooks como HTML
-
-- [ ] **Testes automatizados** — `tests/` com pytest
-  - Unit tests para `portfolio.py` (Markowitz com dados sintéticos)
-  - Integration tests para `qdrant_client.py` (mock Qdrant)
+- [ ] **Módulo B (AI-Buffett Engine)** — score baseado nas cartas de Buffett (PDFs 1977-2024)
+- [ ] **Módulo C (Deception Detector)** — análise de earnings call transcripts
+- [ ] **Accuracy backtest real (Module D)** — requer dados acumulados (semanas)
+- [ ] **Semantic search no Qdrant** — substituir hash-vectors por embeddings reais
+- [ ] **Resolução de forecasts** — mecanismo para marcar `resolved=True` + `actual_outcome`
+- [ ] **Investor Arena histórico** — gráfico de performance ao longo do tempo (multi-sessão)
 
 ---
 
@@ -156,26 +147,34 @@
 
 ### Fluxo de dados entre módulos
 ```
-Reddit Posts (VPS cron)
-    → Qdrant raw_reddit (scored=False)
-    → notebook_a.ipynb: Qwen 9B scoring
+Reddit Posts (VPS cron ou sidebar "Run Module A")
+    → Qdrant raw_reddit (scored=False)  [ou directo para signals]
+    → Module A: Qwen 9B scoring
     → Qdrant reddit_signals (scored=True, is_investable=True/False)
-    → notebook_d.ipynb: event generation + Qwen 4B forecasting
+    → Module D: event generation + Qwen 4B forecasting
     → Qdrant forecast_history
-    → notebook_e.ipynb: Markowitz optimization
-    → Portfolio output + Slack alert
+    → Module E (Portfolio tab): Markowitz optimization
+    → Investor Arena: 10 AI personas → BUY/SELL/HOLD → Qdrant sim_events
 ```
 
-### Variáveis de configuração críticas (`config.py`)
+### Launcher
+```bash
+# Double-click MagicFinance.command  — abre http://localhost:8501
+# Ou manualmente:
+KMP_DUPLICATE_LIB_OK=TRUE streamlit run app.py
+```
+
+### Variáveis críticas (`config.py`)
 | Variável | Valor | Significado |
 |---|---|---|
-| `NANOBOT_WATCHLIST` no notebook_e | `['AAPL','MSFT',...]` | **Atualizar** com tickers reais do stock_watchdog.py |
-| `CONFIDENCE_THRESHOLD` | 0.75 | Ajustar após ver distribuição real dos scores |
-| `FORECAST_THRESHOLD` | 0.70 | Ajustar após ver distribuição real das probabilidades |
-| `SCORE_LIMIT` no notebook_a | 20 | Aumentar para produção (mais posts = mais sinais) |
+| `CONFIDENCE_THRESHOLD` | 0.75 | Threshold para sinais investable |
+| `FORECAST_THRESHOLD` | 0.70 | Threshold para forecasts de alta confiança |
+| `MIN_UPVOTES` | 5 | Posts Reddit com menos upvotes são ignorados |
+| `QDRANT_HOST` | 100.97.190.121 | IP Tailscale do VPS Nanobot |
 
 ### Potenciais problemas conhecidos
-- **Qwen 9B lento**: cada post demora ~30-60s. Com 20 posts = 10-20min. Reduzir `SCORE_LIMIT` para demos rápidas.
-- **Reddit rate limits**: PRAW respeita automaticamente, mas 100 posts × 3 subreddits = ~300 requests. Ok para uso diário.
-- **Qdrant vector dim**: actualmente usa hash-vectors (384 dim). Se mudar para embeddings reais, recriar collections.
-- **yfinance ^GSPC**: alguns ambientes bloqueiam download do S&P500. Se falhar, o benchmark fica vazio (não quebra o notebook).
+- **Qwen 9B lento**: ~30-60s por post. Usar 3-5 posts em demo.
+- **Reddit rate limits**: PRAW respeita automaticamente.
+- **Qdrant offline**: dashboard entra em demo mode automaticamente (sem crash).
+- **yfinance ^GSPC**: alguns ambientes bloqueiam. Benchmark fica vazio mas não quebra.
+- **Thinking blocks Qwen3.5**: `_extract_decisions` strip + findall resolve.

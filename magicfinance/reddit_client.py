@@ -33,6 +33,11 @@ _TICKER_BLACKLIST = {
     "CEO", "CFO", "CTO", "IPO", "ETF", "GDP", "CPI", "FED", "SEC", "AI",
     "ML", "VC", "PR", "DD", "YOY", "QOQ", "TTM", "FCF", "EV", "IMO",
     "IMHO", "TBH", "EDIT", "TL", "DR", "FAQ", "OTC", "NYSE", "NASDAQ",
+    # Macro indices / news outlets / common abbreviations mistaken for tickers
+    "PCE", "PPI", "PMI", "ISM", "NFP", "FOMC", "ECB", "BOJ", "BOE",
+    "NYT", "WSJ", "CNN", "BBC", "CNBC", "WTI", "USD", "EUR", "GBP",
+    "DXY", "VIX", "SPX", "SPY", "QQQ", "DJI", "RUT", "BTC", "ETH",
+    "RE", "IT", "ALL", "ANY", "NOW", "NEW", "OLD", "BIG", "WELL",
 }
 
 

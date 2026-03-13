@@ -35,6 +35,7 @@ from magicfinance.config import (
     COLLECTION_REDDIT_SIGNALS,
     COLLECTION_FORECAST_HISTORY,
     COLLECTION_RAW_REDDIT,
+    COLLECTION_SIM_EVENTS,
     VECTOR_DIM,
 )
 
@@ -69,7 +70,7 @@ def ensure_collections() -> None:
     client = get_client()
     existing = {c.name for c in client.get_collections().collections}
 
-    for name in [COLLECTION_REDDIT_SIGNALS, COLLECTION_FORECAST_HISTORY, COLLECTION_RAW_REDDIT]:
+    for name in [COLLECTION_REDDIT_SIGNALS, COLLECTION_FORECAST_HISTORY, COLLECTION_RAW_REDDIT, COLLECTION_SIM_EVENTS]:
         if name not in existing:
             client.create_collection(
                 collection_name=name,
@@ -261,3 +262,35 @@ def mark_post_scored(post_id: str, subreddit: str) -> None:
         payload={"scored": True, "scored_at": datetime.utcnow().isoformat()},
         points=[_make_point_id(key)],
     )
+
+
+# ─── Investor simulation events ────────────────────────────────────────────────
+
+def upsert_sim_event(event: dict) -> None:
+    """Store an investor simulation decision event in Qdrant."""
+    client = get_client()
+    key = f"sim:{event['investor_id']}:{event['ticker']}:{event['timestamp']}"
+    point = PointStruct(
+        id=_make_point_id(key),
+        vector=_text_to_vector(key),
+        payload=event,
+    )
+    client.upsert(collection_name=COLLECTION_SIM_EVENTS, points=[point])
+
+
+def get_sim_events(investor_id: Optional[str] = None, limit: int = 500) -> list[dict]:
+    """Retrieve simulation decision events, optionally filtered by investor."""
+    client = get_client()
+    scroll_filter = None
+    if investor_id:
+        scroll_filter = Filter(
+            must=[FieldCondition(key="investor_id", match=MatchValue(value=investor_id))]
+        )
+    results = client.scroll(
+        collection_name=COLLECTION_SIM_EVENTS,
+        scroll_filter=scroll_filter,
+        limit=limit,
+        with_payload=True,
+        with_vectors=False,
+    )
+    return [hit.payload for hit in results[0]]

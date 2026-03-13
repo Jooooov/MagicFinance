@@ -1,27 +1,22 @@
 # MagicFinance — Status da Implementação
 
 > Ficheiro de controlo. Atualizado continuamente durante o desenvolvimento.
-> Última atualização: 2026-03-12
+> Última atualização: 2026-03-13
 
 ---
 
-## ✅ Decisão de Arquitectura Resolvida: MLX (migrado)
+## ✅ Decisão de Arquitectura Resolvida: MLX (migrado e funcional)
 
-O código actual usa **Qwen via Ollama** (`llm_client.py`), mas o setup real desta máquina é:
+`llm_client.py` usa MLX nativo (`mlx_lm`) — sem Ollama, sem servidor.
 
-| Configuração actual no código | Setup real da máquina |
+| Aspecto | Solução |
 |---|---|
-| `ollama pull qwen2.5:9b` | **DeepSeek-R1-0528-Qwen3-8B-8bit via MLX** |
-| `http://localhost:11434` (Ollama REST) | `mlx_lm.generate()` (Python directo, zero latência de rede) |
-| Qwen2.5 9B + 4B | DeepSeek-R1 8B (reasoning + thinking mode) |
+| Modelos Qwen3.5 são VL (vision-language) | `load_model(strict=False)` ignora vision tower weights |
+| API de temperatura mudou no mlx_lm 0.30+ | `make_sampler(temp=T)` passado como `sampler=` |
+| Thinking mode ligado por defeito | `enable_thinking=False` no `apply_chat_template` |
+| Conflito libomp no launcher | `KMP_DUPLICATE_LIB_OK=TRUE` no `.command` |
 
-**Recomendação**: Migrar `llm_client.py` para usar MLX directamente (como o Wisdom Council). Vantagens:
-- Sem servidor Ollama a arrancar
-- ~25-30 tokens/sec (mais rápido)
-- Thinking mode nativo (melhor qualidade de scoring)
-- Consistente com todos os outros projectos
-
-**Acção necessária**: Confirmar com o utilizador se quer migrar para MLX ou manter Ollama.
+**Smoke tests: 8/9 ✅** — só Qdrant falha quando Tailscale está desligado.
 
 ---
 
@@ -83,7 +78,8 @@ O código actual usa **Qwen via Ollama** (`llm_client.py`), mas o setup real des
   - `NEWSAPI_KEY` → https://newsapi.org/register (free tier)
   - `SLACK_WEBHOOK_URL` → reutilizar o webhook do Nanobot (já existe)
 
-- [x] **Modelos MLX verificados** — `Qwen3.5-9B-4bit` + `Qwen3.5-4B-4bit` em `~/Desktop/Apps/MLX/` ✅
+- [x] **Modelos MLX verificados e funcionais** — `Qwen3.5-9B-4bit` + `Qwen3.5-4B-4bit` em `~/Desktop/Apps/MLX/` ✅
+  - Inferência real testada: `{"status": "ok", "value": 42}` ✅
 
 - [ ] **Confirmar Tailscale ativo** (necessário para Qdrant no VPS):
   ```bash

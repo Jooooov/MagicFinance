@@ -306,6 +306,34 @@ st.markdown(
         transition: all 0.3s ease;
     }
 
+    /* ── Discrete popover footer button ── */
+    [data-testid="stPopover"] > div > button {
+        background-color: #0d1117 !important;
+        border: 1px solid #30363d !important;
+        border-top: 1px solid #21262d !important;
+        border-radius: 0 0 10px 10px !important;
+        color: #484f58 !important;
+        font-family: 'Share Tech Mono', monospace !important;
+        font-size: 10px !important;
+        letter-spacing: 2px !important;
+        padding: 5px 0 !important;
+        width: 100% !important;
+        margin-top: -2px !important;
+        transition: color 0.2s, background-color 0.2s !important;
+    }
+    [data-testid="stPopover"] > div > button:hover {
+        color: #00d4aa !important;
+        background-color: #161b22 !important;
+        border-color: #00d4aa40 !important;
+    }
+
+    /* ── Popover panel dark theme ── */
+    [data-testid="stPopoverBody"] {
+        background-color: #0d1117 !important;
+        border: 1px solid #30363d !important;
+        border-radius: 10px !important;
+    }
+
     /* ── Pulse dot for live indicator ── */
     @keyframes pulse-dot {
         0%,100% { transform:scale(1);   opacity:1; }
@@ -469,6 +497,80 @@ DEMO_FORECASTS = [
 ]
 
 DEMO_TICKERS = ["AAPL", "NVDA", "MSFT", "GOOGL", "META"]
+
+# Financial DNA per investor — what metrics drive their decisions
+_FINANCIAL_DNA: dict[str, dict] = {
+    "harry": {
+        "metrics": ["P/E < 15×", "FCF yield > 6%", "ROIC > 15%", "Moat score"],
+        "horizon": "5–10 years",
+        "position_sizing": "High conviction, few positions",
+        "exit_trigger": "Thesis break or >30% overvaluation",
+        "benchmark": "S&P 500 (long-term beat)",
+    },
+    "maeve": {
+        "metrics": ["Rate differentials", "Currency flows", "PMI delta", "COT positioning"],
+        "horizon": "3–18 months",
+        "position_sizing": "Asymmetric — large when conviction is high",
+        "exit_trigger": "Macro regime shift detected",
+        "benchmark": "Global Macro HF Index",
+    },
+    "eddie": {
+        "metrics": ["Revenue CAGR > 40%", "TAM size", "Gross margin expansion", "Unit economics"],
+        "horizon": "5+ years (ignores short-term vol)",
+        "position_sizing": "Concentrated bets (40% max single)",
+        "exit_trigger": "Disruptive thesis proven wrong",
+        "benchmark": "ARK Innovation ETF",
+    },
+    "conrad": {
+        "metrics": ["Correlation < 0.3 between positions", "Sharpe > 1.0", "Max drawdown < 15%", "Risk parity weight"],
+        "horizon": "All-weather, multi-year",
+        "position_sizing": "Equal risk contribution per asset class",
+        "exit_trigger": "Correlation spike across holdings",
+        "benchmark": "Risk Parity benchmark",
+    },
+    "kevin": {
+        "metrics": ["PEG ratio < 1", "Revenue growth 15–30%", "P/E relative to sector", "Founder-led"],
+        "horizon": "2–5 years",
+        "position_sizing": "Moderate, diversified",
+        "exit_trigger": "PEG > 2 or thesis weakens emotionally",
+        "benchmark": "S&P 500 Growth",
+    },
+    "jan": {
+        "metrics": ["Signal confidence z-score", "Backtest Sharpe", "Statistical edge > 0.55", "Low autocorrelation"],
+        "horizon": "Days to weeks (mean-reversion) or months (trend)",
+        "position_sizing": "Kelly fraction, many small positions",
+        "exit_trigger": "Signal threshold crossed, no narrative",
+        "benchmark": "Quantitative Hedge Fund Index",
+    },
+    "richie": {
+        "metrics": ["Short interest > 20%", "Insider buying", "Consensus vs reality gap", "Catalyst clarity"],
+        "horizon": "3–12 months (needs clear catalyst)",
+        "position_sizing": "Concentrated contrarian (40% max)",
+        "exit_trigger": "Catalyst fails or consensus comes around",
+        "benchmark": "S&P 500 Value (beat by contrarianism)",
+    },
+    "vron": {
+        "metrics": ["Price vs 200-DMA", "RSI momentum", "52-week high proximity", "Volume surge"],
+        "horizon": "Weeks to months (trend-following)",
+        "position_sizing": "Size up on momentum, cut fast",
+        "exit_trigger": "Trend reversal or stop-loss hit",
+        "benchmark": "CTA / Trend Following Index",
+    },
+    "bella": {
+        "metrics": ["30%+ discount to intrinsic", "Graham Number", "Book value P/B < 1", "Dividend yield > 3%"],
+        "horizon": "3–7 years",
+        "position_sizing": "Conservative, many positions (15% max)",
+        "exit_trigger": "Reaches fair value or dividend cut",
+        "benchmark": "Berkshire Hathaway",
+    },
+    "tommy": {
+        "metrics": ["Option implied vol mispricing", "Black swan probability", "Tail risk premium", "Barbell ratio"],
+        "horizon": "Short (options) + Very long (core safety)",
+        "position_sizing": "Barbell: 80% safe + 20% convex bets",
+        "exit_trigger": "Asymmetry disappears",
+        "benchmark": "Universa Tail Risk Fund",
+    },
+}
 
 
 # ─── Gamification helpers ─────────────────────────────────────────────────────
@@ -1156,15 +1258,69 @@ def _render_forecasts_tab() -> None:
     _metric(c3, "Avg Probability", f"{avg_prob:.0%}")
     _metric(c4, "Macro Events", str(macro_count))
 
-    brier_hint = (
-        f" Brier score below 0.25 = good calibration."
-        if len(resolved) >= 2 else
-        " Need ≥ 2 resolved forecasts to compute Brier score."
-    )
-    _info_box(
-        f"Binary yes/no predictions about market events. Probability 0 = never, 1 = certain. "
-        f"<b>Avg probability: {avg_prob:.0%}.</b> "
-        f"Resolved forecasts have a known outcome — the <b>Brier Score</b> measures calibration (0 = perfect, 0.25 = random).{brier_hint}"
+    # ── Oracle synthesis ──────────────────────────────────────────────────────
+    bullish_stock = [f for f in forecasts if not f.get("is_macro_event") and f.get("forecast_probability", 0) >= 0.6]
+    high_macro = [f for f in forecasts if f.get("is_macro_event") and f.get("forecast_probability", 0) >= 0.6]
+    top_pred = max(forecasts, key=lambda f: f.get("forecast_probability", 0)) if forecasts else None
+    resolution_rate = len(resolved) / len(forecasts) if forecasts else 0
+
+    brier_str = "N/A"
+    calibration_str, calibration_color = "PENDING DATA", "#8b949e"
+    if len(resolved) >= 2:
+        probs_r   = [f["forecast_probability"] for f in resolved]
+        actuals_r = [1 if f.get("actual_outcome") else 0 for f in resolved]
+        brier_val = sum((p - a) ** 2 for p, a in zip(probs_r, actuals_r)) / len(probs_r)
+        brier_str = f"{brier_val:.3f}"
+        if brier_val < 0.10:
+            calibration_str, calibration_color = "EXCELLENT", "#00d4aa"
+        elif brier_val < 0.20:
+            calibration_str, calibration_color = "GOOD", "#6e9eff"
+        elif brier_val < 0.25:
+            calibration_str, calibration_color = "ACCEPTABLE", "#d29922"
+        else:
+            calibration_str, calibration_color = "POOR", "#f85149"
+
+    if avg_prob >= 0.65:
+        bias_icon, bias_label, bias_color = "📈", "BULLISH BIAS", "#00d4aa"
+        bias_text = f"{len(bullish_stock)} stock event(s) forecast at >60% — oracle leans bullish."
+    elif avg_prob <= 0.40:
+        bias_icon, bias_label, bias_color = "📉", "BEARISH / CAUTIOUS", "#f85149"
+        bias_text = f"High uncertainty across {len(forecasts)} predictions — avg prob below 40%."
+    else:
+        bias_icon, bias_label, bias_color = "⚖️", "NEUTRAL / MIXED", "#d29922"
+        bias_text = f"{len(bullish_stock)} bullish stock signal(s) · {len(high_macro)} elevated macro risk(s)."
+
+    top_pred_html = ""
+    if top_pred:
+        tp_ticker = top_pred.get("ticker") or "MACRO"
+        tp_prob   = top_pred.get("forecast_probability", 0)
+        tp_event  = (top_pred.get("event") or "")[:90]
+        top_pred_html = (
+            f'<br><span style="color:#484f58;font-size:10px;letter-spacing:2px;">'
+            f'HIGHEST CONFIDENCE</span>  '
+            f'<span style="color:#e6edf3;">{tp_ticker}</span> · '
+            f'<span style="color:#00d4aa;font-weight:700;">{tp_prob:.0%}</span> · '
+            f'<span style="color:#8b949e;font-size:11px;">{tp_event}</span>'
+        )
+
+    st.markdown(
+        f'<div class="intel-brief">'
+        f'<div class="intel-header">// ORACLE STATUS — PREDICTION MATRIX ANALYSIS</div>'
+        f'<div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:10px;">'
+        f'  <span><span style="color:#484f58;font-size:10px;letter-spacing:1px;">MARKET BIAS</span><br>'
+        f'    <span style="color:{bias_color};font-weight:700;">{bias_icon} {bias_label}</span></span>'
+        f'  <span><span style="color:#484f58;font-size:10px;letter-spacing:1px;">CALIBRATION</span><br>'
+        f'    <span style="color:{calibration_color};font-weight:700;">{calibration_str}</span>'
+        f'    <span style="color:#484f58;font-size:10px;"> (Brier {brier_str})</span></span>'
+        f'  <span><span style="color:#484f58;font-size:10px;letter-spacing:1px;">RESOLVED</span><br>'
+        f'    <span style="color:#e6edf3;font-weight:700;">{resolution_rate:.0%}</span>'
+        f'    <span style="color:#484f58;font-size:10px;"> ({len(resolved)}/{len(forecasts)})</span></span>'
+        f'  <span><span style="color:#484f58;font-size:10px;letter-spacing:1px;">AVG PROBABILITY</span><br>'
+        f'    <span style="color:#e6edf3;font-weight:700;">{avg_prob:.0%}</span></span>'
+        f'</div>'
+        f'{bias_text}{top_pred_html}'
+        f'</div>',
+        unsafe_allow_html=True,
     )
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1680,79 +1836,128 @@ def _render_arena_tab(qdrant_ok: bool) -> None:
 
         holdings_tickers = " · ".join(portfolio.get("holdings", {}).keys()) or "—"
 
+        # Build financial DNA tags for this investor
+        dna = _FINANCIAL_DNA.get(inv_id, {})
+        dna_tags_html = "".join(
+            f'<span style="background:#21262d;border:1px solid #30363d;border-radius:4px;'
+            f'padding:2px 7px;font-size:10px;color:#8b949e;margin:2px;display:inline-block;">'
+            f'{m}</span>'
+            for m in dna.get("metrics", [])
+        )
+
+        risk_colors = {
+            "very_low": "#8b949e", "low": "#6e9eff", "medium": "#d29922",
+            "high": "#ff8c00", "very_high": "#f85149", "bimodal": "#c678dd",
+        }
+        risk_labels = {
+            "very_low": "VERY LOW", "low": "LOW", "medium": "MEDIUM",
+            "high": "HIGH", "very_high": "VERY HIGH", "bimodal": "BIMODAL",
+        }
+        risk_bars = {"very_low": 10, "low": 25, "medium": 50, "high": 75, "very_high": 95, "bimodal": 65}
+        risk_col  = risk_colors.get(investor["risk_tolerance"], "#8b949e")
+        risk_lbl  = risk_labels.get(investor["risk_tolerance"], "?")
+        risk_bar  = risk_bars.get(investor["risk_tolerance"], 50)
+
         with cols[i % 2]:
+            # Card — no bottom border-radius so popover footer attaches seamlessly
             st.markdown(
                 f"""
-                <div class="inv-card {card_rank_class}">
-                  <!-- Header row -->
+                <div class="inv-card {card_rank_class}"
+                     style="border-radius:10px 10px 0 0;margin-bottom:0;">
                   <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
                     <span style="font-size:22px;">{investor['emoji']}</span>
                     <div style="text-align:right;">
                       {rank_icon}
                       <div>
-                        <span class="level-badge" style="background:{lvl_color}22;color:{lvl_color};border:1px solid {lvl_color}44;">
+                        <span class="level-badge"
+                              style="background:{lvl_color}22;color:{lvl_color};border:1px solid {lvl_color}44;">
                           {lvl_emoji} {lvl_title}
                         </span>
                       </div>
                     </div>
                   </div>
-                  <!-- Name & class -->
                   <div style="color:#e6edf3;font-weight:700;font-size:15px;">{investor['name']}</div>
                   <div style="color:#8b949e;font-size:11px;font-family:monospace;letter-spacing:1px;margin-bottom:6px;">
                     {investor['style'].upper()}
                   </div>
-                  <!-- XP bar -->
                   <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;">
                     <div class="xp-track" style="flex:1;">
                       <div class="xp-fill" style="width:{xp_pct}%;"></div>
                     </div>
                     <span style="font-size:10px;color:#484f58;font-family:monospace;white-space:nowrap;">{xp_next}</span>
                   </div>
-                  <!-- Portfolio value -->
                   <div style="display:flex;align-items:baseline;gap:12px;margin:8px 0 4px;">
                     <span style="color:#e6edf3;font-size:20px;font-weight:700;font-family:monospace;">€{value:.0f}</span>
                     <span style="color:{pnl_colour};font-size:14px;font-weight:600;">{pnl:+.1f}%</span>
                   </div>
                   <div style="color:#484f58;font-size:11px;font-family:monospace;margin-bottom:6px;">
-                    CASH €{cash:.0f} · {n_holdings} POS · {holdings_tickers[:30]}
+                    CASH €{cash:.0f} · {n_holdings} POS · {holdings_tickers[:28]}
                   </div>
-                  <!-- Last trade -->
                   <div style="font-size:12px;border-top:1px solid #21262d;padding-top:6px;margin-top:4px;">
                     {last_html}
                   </div>
-                  <!-- Achievements -->
                   <div style="margin-top:6px;">{badges_html}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
-            # Character profile popover
-            risk_colors = {
-                "very_low": "#8b949e", "low": "#6e9eff", "medium": "#d29922",
-                "high": "#ff8c00", "very_high": "#f85149", "bimodal": "#c678dd",
-            }
-            risk_col = risk_colors.get(investor["risk_tolerance"], "#8b949e")
-            with st.popover(f"📋 {investor['name']}", use_container_width=True):
+            # ── Seamless popover footer ──────────────────────────────────────
+            with st.popover("◈  NETRUNNER PROFILE", use_container_width=True):
                 st.markdown(
-                    f"**{investor['emoji']} {investor['name']}**  \n"
-                    f"*Inspired by MobLand (Paramount+, 2025)*"
-                )
-                st.markdown(f"**Class:** {investor['style']}")
-                st.markdown(
-                    f"**Risk tolerance:** "
-                    f"<span style='color:{risk_col};font-weight:700;'>"
-                    f"{investor['risk_tolerance'].upper().replace('_',' ')}</span>",
+                    f"""
+                    <div style="font-family:'Share Tech Mono',monospace;">
+                      <div style="display:flex;align-items:center;gap:12px;
+                                  border-bottom:1px solid #30363d;padding-bottom:12px;margin-bottom:14px;">
+                        <span style="font-size:36px;">{investor['emoji']}</span>
+                        <div>
+                          <div style="color:#e6edf3;font-size:16px;font-weight:700;">{investor['name']}</div>
+                          <div style="color:#00d4aa;font-size:10px;letter-spacing:3px;">{investor['style'].upper()}</div>
+                          <div style="margin-top:4px;">
+                            <span class="level-badge" style="background:{lvl_color}22;color:{lvl_color};border:1px solid {lvl_color}44;">
+                              {lvl_emoji} {lvl_title} · P&L <span style="color:{pnl_colour};">{pnl:+.1f}%</span>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div style="color:#484f58;font-size:9px;letter-spacing:3px;margin-bottom:6px;">// FINANCIAL DNA</div>
+                      <div style="margin-bottom:12px;">{dna_tags_html}</div>
+                      <div style="color:#484f58;font-size:9px;letter-spacing:3px;margin-bottom:4px;">// RISK PROFILE</div>
+                      <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;">
+                        <div style="flex:1;background:#21262d;border-radius:3px;height:6px;overflow:hidden;">
+                          <div style="width:{risk_bar}%;height:100%;background:linear-gradient(90deg,#6e9eff,{risk_col});border-radius:3px;"></div>
+                        </div>
+                        <span style="color:{risk_col};font-size:10px;font-weight:700;">{risk_lbl}</span>
+                      </div>
+                      <div style="color:#484f58;font-size:10px;margin-bottom:12px;">
+                        Max single bet: <span style="color:#e6edf3;">{investor['max_single_bet_pct']*100:.0f}%</span>
+                        &nbsp;·&nbsp;
+                        Horizon: <span style="color:#e6edf3;">{dna.get('horizon','—')}</span>
+                      </div>
+                      <div style="display:flex;gap:10px;margin-bottom:12px;">
+                        <div style="flex:1;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:8px 10px;">
+                          <div style="color:#484f58;font-size:9px;letter-spacing:2px;margin-bottom:4px;">SIZING</div>
+                          <div style="color:#c9d1d9;font-size:11px;">{dna.get('position_sizing','—')}</div>
+                        </div>
+                        <div style="flex:1;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:8px 10px;">
+                          <div style="color:#484f58;font-size:9px;letter-spacing:2px;margin-bottom:4px;">EXIT TRIGGER</div>
+                          <div style="color:#c9d1d9;font-size:11px;">{dna.get('exit_trigger','—')}</div>
+                        </div>
+                      </div>
+                      <div style="color:#484f58;font-size:9px;letter-spacing:3px;margin-bottom:6px;">// PERSONALITY</div>
+                      <div style="color:#8b949e;font-size:12px;font-style:italic;line-height:1.5;
+                                  border-left:2px solid #30363d;padding-left:10px;margin-bottom:12px;">
+                        "{investor['personality']}"
+                      </div>
+                      <div style="color:#484f58;font-size:9px;letter-spacing:3px;margin-bottom:6px;">// STRATEGY</div>
+                      <div style="color:#c9d1d9;font-size:12px;line-height:1.5;margin-bottom:10px;">
+                        {investor['strategy']}
+                      </div>
+                      <div style="color:#21262d;font-size:10px;text-align:right;border-top:1px solid #21262d;padding-top:8px;">
+                        Benchmark: {dna.get('benchmark','—')}
+                      </div>
+                    </div>
+                    """,
                     unsafe_allow_html=True,
-                )
-                st.markdown(f"**Max single bet:** {investor['max_single_bet_pct']*100:.0f}% of portfolio")
-                st.divider()
-                st.markdown(f"**Personality**  \n_{investor['personality']}_")
-                st.markdown(f"**Strategy**  \n{investor['strategy']}")
-                st.divider()
-                st.markdown(
-                    f"**Level:** {lvl_emoji} {lvl_title}  \n"
-                    f"**P&L:** :{'green' if pnl >= 0 else 'red'}[{pnl:+.2f}%]  \n"
-                    f"**Portfolio value:** €{value:.2f}"
                 )
 
     # ── Performance chart ─────────────────────────────────────────────────────

@@ -32,17 +32,21 @@ else
     echo "✅ Tailscale: VPS conectado"
 fi
 
-# ─── Check Ollama ─────────────────────────────────────────────────────────────
-if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
-    echo "⚠️  Ollama não está a correr."
-    echo "   Inicia com: ollama serve"
+# ─── Check MLX models ─────────────────────────────────────────────────────────
+MLX_DIR="$HOME/Desktop/Apps/MLX"
+if [ -d "$MLX_DIR/Qwen3.5-9B-4bit" ] && [ -d "$MLX_DIR/Qwen3.5-4B-4bit" ]; then
+    echo "✅ MLX: modelos Qwen3.5 encontrados"
 else
-    echo "✅ Ollama: a correr"
+    echo "⚠️  Modelos MLX não encontrados em $MLX_DIR"
+    echo "   Corre: cd $MLX_DIR && python3 download_models.py"
 fi
 
 echo ""
 echo "🚀 A abrir MagicFinance no Jupyter..."
 echo ""
+
+# OpenMP fix for Apple Silicon (prevents duplicate libomp errors)
+export KMP_DUPLICATE_LIB_OK=TRUE
 
 # Open Jupyter with the notebooks directory
 jupyter notebook notebooks/

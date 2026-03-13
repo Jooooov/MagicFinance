@@ -40,17 +40,18 @@ _models: dict = {}  # path → (model, tokenizer)
 def _load_model(model_path: str):
     """
     Load an MLX model and tokenizer, caching in memory.
-    First call takes ~2s; subsequent calls return instantly from cache.
+    Qwen3.5 models are VL architectures but used in text-only mode.
+    Uses strict=False to skip vision tower weights that aren't in the text model.
+    First call takes ~2-5s; subsequent calls return instantly from cache.
     """
     if model_path not in _models:
         try:
-            from mlx_lm import load
-            logger.info("Loading MLX model from %s (first load ~2s)...", model_path)
-            model, tokenizer = load(model_path)
+            from mlx_lm.utils import load_model, load_tokenizer
+            logger.info("Loading MLX model from %s...", Path(model_path).name)
+            model, _config = load_model(Path(model_path), lazy=False, strict=False)
+            tokenizer = load_tokenizer(Path(model_path))
             _models[model_path] = (model, tokenizer)
-            logger.info("Model loaded: %s", Path(model_path).name)
-        except ImportError:
-            raise ImportError("mlx_lm not installed. Run: pip install mlx-lm")
+            logger.info("MLX model loaded: %s", Path(model_path).name)
         except Exception as exc:
             raise RuntimeError(f"Failed to load MLX model from {model_path}: {exc}") from exc
     return _models[model_path]
@@ -66,7 +67,7 @@ def _generate(
     temperature: float = 0.1,
 ) -> str:
     """
-    Run MLX generation with the given model.
+    Run MLX generation with the given model (VLM text-only mode).
 
     Args:
         model_path: path to the MLX model directory
@@ -82,32 +83,36 @@ def _generate(
 
     model, tokenizer = _load_model(model_path)
 
-    # Build chat messages
+    # Build chat messages and apply chat template
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
 
-    # Apply chat template if available
-    if hasattr(tokenizer, "apply_chat_template"):
+    # enable_thinking=False disables Qwen3.5 chain-of-thought for faster JSON output
+    try:
+        formatted = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
+    except TypeError:
+        # Fallback for tokenizers that don't support enable_thinking
         formatted = tokenizer.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True,
         )
-    else:
-        # Fallback: plain concatenation
-        formatted = "\n".join(
-            f"{'System' if m['role'] == 'system' else 'User'}: {m['content']}"
-            for m in messages
-        ) + "\nAssistant:"
 
+    from mlx_lm.sample_utils import make_sampler
+    sampler = make_sampler(temp=temperature)
     response = generate(
         model,
         tokenizer,
         prompt=formatted,
         max_tokens=max_tokens,
-        temp=temperature,
+        sampler=sampler,
         verbose=False,
     )
     return response

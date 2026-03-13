@@ -31,7 +31,55 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
     .stApp { background-color: #0d1117; }
+
+    /* ── Glitch animation ── */
+    @keyframes glitch {
+        0%,88%,100% { transform:translate(0); text-shadow:none; }
+        89% { transform:translate(-3px,1px);
+              text-shadow:-3px 0 #ff0055, 3px 0 #00d4aa; }
+        91% { transform:translate(3px,-1px);
+              text-shadow:3px 0 #ff0055, -3px 0 #00d4aa; }
+        93% { transform:translate(-1px,0);
+              text-shadow:-2px 0 #ff0055; }
+        95% { transform:translate(0); text-shadow:none; }
+    }
+    @keyframes neon-pulse {
+        0%,100% { box-shadow:0 0 6px #00d4aa40, 0 0 12px #00d4aa20,
+                              inset 0 0 6px #00d4aa10; }
+        50%     { box-shadow:0 0 18px #00d4aa80, 0 0 36px #00d4aa40,
+                              inset 0 0 10px #00d4aa20; }
+    }
+    @keyframes scanline {
+        0%   { transform:translateY(-100%); }
+        100% { transform:translateY(100vh); }
+    }
+    @keyframes xp-grow {
+        from { width:0%; }
+    }
+    @keyframes blink-cursor {
+        0%,100% { border-right-color:#00d4aa; }
+        50%     { border-right-color:transparent; }
+    }
+    @keyframes float-badge {
+        0%,100% { transform:translateY(0px); }
+        50%     { transform:translateY(-3px); }
+    }
+
+    /* ── Scanline overlay ── */
+    .stApp::before {
+        content:'';
+        position:fixed; top:0; left:0; right:0; bottom:0;
+        background:repeating-linear-gradient(
+            0deg, transparent, transparent 3px,
+            rgba(0,212,170,0.015) 3px, rgba(0,212,170,0.015) 4px
+        );
+        pointer-events:none; z-index:9999;
+    }
+
+    /* ── Metric card ── */
     .metric-card {
         background-color: #161b22;
         border: 1px solid #30363d;
@@ -42,6 +90,8 @@ st.markdown(
     .metric-card .label { color: #8b949e; font-size: 13px; margin-bottom: 4px; }
     .metric-card .value { color: #e6edf3; font-size: 28px; font-weight: 700; }
     .metric-card .sub   { color: #8b949e; font-size: 12px; margin-top: 2px; }
+
+    /* ── Demo banner ── */
     .demo-banner {
         background-color: #3d2c00;
         border: 1px solid #d29922;
@@ -50,6 +100,135 @@ st.markdown(
         color: #d29922;
         font-size: 14px;
         margin-bottom: 16px;
+    }
+
+    /* ── Cyberpunk investor card ── */
+    .inv-card {
+        background: linear-gradient(135deg, #161b22 0%, #0d1117 100%);
+        border: 1px solid #30363d;
+        border-radius: 10px;
+        padding: 14px 16px;
+        margin-bottom: 12px;
+        position: relative;
+        transition: border-color 0.3s;
+    }
+    .inv-card.rank-1 {
+        border-color: #ffd700;
+        animation: neon-pulse 2.5s ease-in-out infinite;
+    }
+    .inv-card.rank-2 { border-color: #c0c0c0; }
+    .inv-card.rank-3 { border-color: #cd7f32; }
+
+    /* ── XP bar ── */
+    .xp-track {
+        background: #21262d;
+        border-radius: 3px;
+        height: 5px;
+        overflow: hidden;
+        margin: 5px 0 3px;
+    }
+    .xp-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #00d4aa, #00ffcc);
+        border-radius: 3px;
+        animation: xp-grow 1s ease-out;
+    }
+
+    /* ── Level badge ── */
+    .level-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        border-radius: 4px;
+        padding: 2px 8px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        font-family: 'Share Tech Mono', monospace;
+    }
+
+    /* ── Achievement pill ── */
+    .ach-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        background: #21262d;
+        border: 1px solid #30363d;
+        border-radius: 20px;
+        padding: 2px 8px;
+        font-size: 10px;
+        color: #8b949e;
+        margin: 2px 2px 0 0;
+        animation: float-badge 3s ease-in-out infinite;
+    }
+
+    /* ── Market HUD ── */
+    .market-hud {
+        background: #0d1117;
+        border: 1px solid #30363d;
+        border-top: 2px solid #00d4aa;
+        border-radius: 6px;
+        padding: 10px 20px;
+        font-family: 'Share Tech Mono', monospace;
+        font-size: 12px;
+        color: #8b949e;
+        margin-bottom: 16px;
+        display: flex;
+        gap: 20px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .hud-item { display: flex; flex-direction: column; }
+    .hud-label { font-size: 10px; color: #484f58; letter-spacing: 1px; }
+    .hud-value { color: #e6edf3; font-size: 13px; }
+
+    /* ── Intel brief (panorama) ── */
+    .intel-brief {
+        background: linear-gradient(135deg, #0d1f17 0%, #0d1117 100%);
+        border: 1px solid #00d4aa40;
+        border-left: 3px solid #00d4aa;
+        border-radius: 6px;
+        padding: 14px 18px;
+        font-family: 'Share Tech Mono', monospace;
+        font-size: 13px;
+        color: #c9d1d9;
+        line-height: 1.7;
+        margin: 16px 0;
+    }
+    .intel-header {
+        color: #00d4aa;
+        font-size: 10px;
+        letter-spacing: 3px;
+        margin-bottom: 8px;
+        font-weight: 700;
+    }
+
+    /* ── Signal verdict pill (animated for STRONG BUY) ── */
+    @keyframes verdict-pulse {
+        0%,100% { box-shadow:0 0 0px #00d4aa00; }
+        50%      { box-shadow:0 0 10px #00d4aa60; }
+    }
+    .verdict-strong {
+        animation: verdict-pulse 2s ease-in-out infinite;
+    }
+
+    /* ── Page title ── */
+    .cp-title {
+        font-family: 'Share Tech Mono', monospace;
+        font-size: 32px;
+        font-weight: 700;
+        color: #00d4aa;
+        letter-spacing: 4px;
+        animation: glitch 10s infinite;
+        display: inline-block;
+        margin-bottom: 0;
+    }
+    .cp-subtitle {
+        font-family: 'Share Tech Mono', monospace;
+        font-size: 11px;
+        color: #484f58;
+        letter-spacing: 3px;
+        margin-top: 2px;
     }
     </style>
     """,
@@ -182,6 +361,79 @@ DEMO_FORECASTS = [
 ]
 
 DEMO_TICKERS = ["AAPL", "NVDA", "MSFT", "GOOGL", "META"]
+
+
+# ─── Gamification helpers ─────────────────────────────────────────────────────
+
+# (threshold_pnl_pct, emoji, title, hex_color)
+_LEVELS = [
+    (10.0, "🏆", "LEGEND",  "#ffd700"),
+    ( 5.0, "💎", "ELITE",   "#00d4aa"),
+    ( 2.0, "🔥", "VETERAN", "#ff8c00"),
+    ( 0.0, "⚔️", "SOLDIER", "#6e9eff"),
+    (-99,  "🌱", "RECRUIT", "#8b949e"),
+]
+
+
+def _investor_level(pnl_pct: float) -> tuple[str, str, str]:
+    """Return (emoji, title, hex_color) based on P&L %."""
+    for threshold, emoji, title, color in _LEVELS:
+        if pnl_pct >= threshold:
+            return emoji, title, color
+    return "🌱", "RECRUIT", "#8b949e"
+
+
+def _xp_progress(pnl_pct: float) -> tuple[float, str]:
+    """Return (progress 0-1, next_level_label) for XP bar rendering."""
+    breakpoints = [-99, 0.0, 2.0, 5.0, 10.0, 9999]
+    labels = ["RECRUIT", "SOLDIER", "VETERAN", "ELITE", "LEGEND"]
+    for i in range(len(breakpoints) - 1):
+        lo, hi = breakpoints[i], breakpoints[i + 1]
+        if pnl_pct < hi:
+            if hi == 9999:
+                return 1.0, "MAX LEVEL"
+            progress = (pnl_pct - lo) / (hi - lo)
+            next_label = labels[min(i + 1, len(labels) - 1)]
+            return max(0.0, min(1.0, progress)), f"▶ {next_label}"
+    return 1.0, "MAX LEVEL"
+
+
+def _achievements(portfolio: dict, inv_id: str, all_events: list[dict]) -> list[tuple[str, str]]:
+    """Return list of (emoji, label) achievement badges earned."""
+    badges = []
+    inv_events = [e for e in all_events if e.get("investor_id") == inv_id]
+    trades = [e for e in inv_events if e.get("action") in ("BUY", "SELL")]
+    holdings = portfolio.get("holdings", {})
+    history = portfolio.get("history", [])
+
+    if trades:
+        badges.append(("🎯", "FIRST BLOOD"))
+    if len(trades) >= 5:
+        badges.append(("⚡", "TRIGGER HAPPY"))
+    if len(holdings) >= 3:
+        badges.append(("🏦", "DIVERSIFIED"))
+    if len(history) >= 10:
+        badges.append(("📡", "VETERAN RUNNER"))
+    buy_tickers = {e.get("ticker") for e in trades if e.get("action") == "BUY"}
+    sell_tickers = {e.get("ticker") for e in trades if e.get("action") == "SELL"}
+    if buy_tickers & sell_tickers:
+        badges.append(("🔄", "TRADE LOOP"))
+    if not trades:
+        badges.append(("👻", "GHOST"))
+    return badges
+
+
+def _market_condition(signals: list[dict]) -> tuple[str, str, str]:
+    """Return (indicator, label, hex_color) based on avg signal confidence."""
+    if not signals:
+        return "⚫", "NO SIGNAL", "#8b949e"
+    avg = sum(s.get("confidence_level", 0) for s in signals) / len(signals)
+    if avg >= 0.70:
+        return "🟢", "CONDITION GREEN", "#00d4aa"
+    elif avg >= 0.50:
+        return "🟡", "CONDITION YELLOW", "#d29922"
+    else:
+        return "🔴", "CONDITION RED", "#f85149"
 
 
 # ─── Connection probe ──────────────────────────────────────────────────────────
@@ -650,13 +902,14 @@ def _render_signals_tab(params: dict) -> None:
         border_col = "#f85149"
 
     if len(unique) > 0:
-        sectors_text = f"Total de **{len(unique)} tickers únicos** rastreados esta sessão."
+        sectors_text = f"{len(unique)} unique tickers tracked this session."
+        cond_icon_s, _, _ = _market_condition(unique)
         st.markdown(
-            f'<div style="background:#161b22;border-left:4px solid {border_col};border-radius:6px;'
-            f'padding:14px 18px;margin-bottom:16px;font-size:14px;line-height:1.6;">'
-            f'<b style="color:#e6edf3;">Panorama atual</b><br>'
-            f'<span style="color:#c9d1d9;">{panorama}</span><br>'
-            f'<span style="color:#8b949e;font-size:12px;">{sectors_text}</span>'
+            f'<div class="intel-brief">'
+            f'<div class="intel-header">// INTEL BRIEF — NEURAL FEED ANALYSIS</div>'
+            f'{cond_icon_s} {panorama}<br>'
+            f'<span style="color:#484f58;font-size:11px;margin-top:6px;display:block;">'
+            f'▸ {sectors_text}</span>'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -1111,11 +1364,33 @@ def _render_arena_tab(qdrant_ok: bool) -> None:
     )
     from magicfinance.llm_client import MODEL_4B_PATH, MODEL_9B_PATH
 
+    arena_signals, _ = _load_signals()
+    arena_cond_icon, arena_cond_label, arena_cond_color = _market_condition(arena_signals)
+    _early_portfolios = load_portfolios()
+    n_ticks = max(
+        (len(_early_portfolios.get(inv["id"], {}).get("history", [])) for inv in INVESTORS),
+        default=0,
+    )
+
+    st.markdown(
+        f'<div class="market-hud">'
+        f'<div class="hud-item"><span class="hud-label">MARKET</span>'
+        f'<span class="hud-value" style="color:{arena_cond_color};">{arena_cond_icon} {arena_cond_label}</span></div>'
+        f'<div class="hud-item"><span class="hud-label">TICKS RUN</span>'
+        f'<span class="hud-value">{n_ticks}</span></div>'
+        f'<div class="hud-item"><span class="hud-label">NETRUNNERS</span>'
+        f'<span class="hud-value">10 ACTIVE</span></div>'
+        f'<div class="hud-item"><span class="hud-label">SIGNALS IN FEED</span>'
+        f'<span class="hud-value">{len(arena_signals)}</span></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
     _info_box(
-        "<b>10 AI investor personas</b>, each starting with €1,000, making autonomous BUY/SELL/HOLD "
-        "decisions based on the Reddit signals above. Each has a unique investment philosophy and personality, "
-        "and runs on Qwen 3.5. Click <b>▶ Run Tick</b> to trigger the next round of decisions. "
-        "Watch how different styles perform over time."
+        "<b>10 netrunners</b> jacked into the market, each starting with €1,000 and making autonomous "
+        "BUY/SELL/HOLD decisions based on the Reddit neural feed. Each has a unique class, risk profile, "
+        "and personality — powered by Qwen 3.5. Click <b>▶ Run Tick</b> to trigger the next round. "
+        "Earn XP, unlock achievements, and climb the standings."
     )
 
     # ── Controls ──────────────────────────────────────────────────────────────
@@ -1236,7 +1511,11 @@ def _render_arena_tab(qdrant_ok: bool) -> None:
             pass
 
     # ── Investor cards grid ───────────────────────────────────────────────────
-    st.markdown("### Investor Standings")
+    st.markdown(
+        '<div style="font-family:\'Share Tech Mono\',monospace;font-size:11px;'
+        'color:#484f58;letter-spacing:2px;margin-bottom:10px;">// NETRUNNER STANDINGS</div>',
+        unsafe_allow_html=True,
+    )
 
     cols = st.columns(2)
     sorted_investors = sorted(
@@ -1252,51 +1531,92 @@ def _render_arena_tab(qdrant_ok: bool) -> None:
         pnl = portfolio_pnl_pct(portfolio, live_prices)
         cash = portfolio.get("cash", INITIAL_CAPITAL)
         n_holdings = len(portfolio.get("holdings", {}))
+
+        # RPG level
+        lvl_emoji, lvl_title, lvl_color = _investor_level(pnl)
+        xp_progress, xp_next = _xp_progress(pnl)
+        xp_pct = int(xp_progress * 100)
+
+        # Achievements
+        badges = _achievements(portfolio, inv_id, sim_events)
+        badges_html = "".join(
+            f'<span class="ach-pill">{e} {lbl}</span>'
+            for e, lbl in badges[:3]  # max 3 shown
+        )
+
+        # Last trade
         last = last_decision.get(inv_id)
-        last_action_html = ""
         if last:
-            colour = "#00d4aa" if last["action"] == "BUY" else "#f85149"
-            last_action_html = (
-                f'<span style="color:{colour};font-weight:600;">{last["action"]} {last.get("ticker","")}</span>'
-                f' — <span style="color:#8b949e;font-size:11px;">{last.get("reasoning","")[:80]}…</span>'
+            act_color = "#00d4aa" if last["action"] == "BUY" else "#f85149"
+            last_html = (
+                f'<span style="color:{act_color};font-weight:700;font-family:monospace;">'
+                f'{last["action"]} {last.get("ticker","")}</span>'
+                f' <span style="color:#8b949e;font-size:11px;">'
+                f'{last.get("reasoning","")[:70]}…</span>'
             )
         else:
-            last_action_html = '<span style="color:#8b949e;font-size:12px;">No decisions yet</span>'
+            last_html = '<span style="color:#484f58;font-size:11px;font-family:monospace;">[ AWAITING ORDERS ]</span>'
 
         pnl_colour = "#00d4aa" if pnl >= 0 else "#f85149"
         rank = i + 1
-        rank_badge = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"#{rank}"
+        rank_icon = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"<span style='font-family:monospace;color:#484f58;'>#{rank}</span>")
+        card_rank_class = {1: "rank-1", 2: "rank-2", 3: "rank-3"}.get(rank, "")
+
+        holdings_tickers = " · ".join(portfolio.get("holdings", {}).keys()) or "—"
 
         with cols[i % 2]:
             st.markdown(
                 f"""
-                <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;
-                            padding:14px 16px;margin-bottom:12px;">
-                  <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <span style="font-size:20px;">{investor['emoji']}</span>
-                    <span style="color:#8b949e;font-size:13px;">{rank_badge}</span>
+                <div class="inv-card {card_rank_class}">
+                  <!-- Header row -->
+                  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+                    <span style="font-size:22px;">{investor['emoji']}</span>
+                    <div style="text-align:right;">
+                      {rank_icon}
+                      <div>
+                        <span class="level-badge" style="background:{lvl_color}22;color:{lvl_color};border:1px solid {lvl_color}44;">
+                          {lvl_emoji} {lvl_title}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div style="color:#e6edf3;font-weight:700;font-size:16px;margin:4px 0 2px;">
-                    {investor['name']}
+                  <!-- Name & class -->
+                  <div style="color:#e6edf3;font-weight:700;font-size:15px;">{investor['name']}</div>
+                  <div style="color:#8b949e;font-size:11px;font-family:monospace;letter-spacing:1px;margin-bottom:6px;">
+                    {investor['style'].upper()}
                   </div>
-                  <div style="color:#8b949e;font-size:12px;margin-bottom:8px;">
-                    {investor['style']}
+                  <!-- XP bar -->
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;">
+                    <div class="xp-track" style="flex:1;">
+                      <div class="xp-fill" style="width:{xp_pct}%;"></div>
+                    </div>
+                    <span style="font-size:10px;color:#484f58;font-family:monospace;white-space:nowrap;">{xp_next}</span>
                   </div>
-                  <div style="display:flex;gap:16px;margin-bottom:8px;">
-                    <span style="color:#e6edf3;font-size:18px;font-weight:700;">€{value:.0f}</span>
-                    <span style="color:{pnl_colour};font-size:16px;font-weight:600;">{pnl:+.1f}%</span>
+                  <!-- Portfolio value -->
+                  <div style="display:flex;align-items:baseline;gap:12px;margin:8px 0 4px;">
+                    <span style="color:#e6edf3;font-size:20px;font-weight:700;font-family:monospace;">€{value:.0f}</span>
+                    <span style="color:{pnl_colour};font-size:14px;font-weight:600;">{pnl:+.1f}%</span>
                   </div>
-                  <div style="color:#8b949e;font-size:12px;margin-bottom:6px;">
-                    Cash €{cash:.0f} · {n_holdings} position{'s' if n_holdings != 1 else ''}
+                  <div style="color:#484f58;font-size:11px;font-family:monospace;margin-bottom:6px;">
+                    CASH €{cash:.0f} · {n_holdings} POS · {holdings_tickers[:30]}
                   </div>
-                  <div style="font-size:12px;">{last_action_html}</div>
+                  <!-- Last trade -->
+                  <div style="font-size:12px;border-top:1px solid #21262d;padding-top:6px;margin-top:4px;">
+                    {last_html}
+                  </div>
+                  <!-- Achievements -->
+                  <div style="margin-top:6px;">{badges_html}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
 
     # ── Performance chart ─────────────────────────────────────────────────────
-    st.markdown("### Portfolio Value Over Time")
+    st.markdown(
+        '<div style="font-family:\'Share Tech Mono\',monospace;font-size:11px;'
+        'color:#484f58;letter-spacing:2px;margin:16px 0 8px;">// PORTFOLIO TELEMETRY</div>',
+        unsafe_allow_html=True,
+    )
 
     fig_perf = go.Figure()
     colours = px.colors.qualitative.Plotly
@@ -1340,7 +1660,11 @@ def _render_arena_tab(qdrant_ok: bool) -> None:
 
     # ── Decision log ──────────────────────────────────────────────────────────
     if sim_events:
-        st.markdown("### Recent Decisions")
+        st.markdown(
+            '<div style="font-family:\'Share Tech Mono\',monospace;font-size:11px;'
+            'color:#484f58;letter-spacing:2px;margin:16px 0 8px;">// COMBAT LOG</div>',
+            unsafe_allow_html=True,
+        )
         action_events = [e for e in sim_events if e.get("action") in ("BUY", "SELL")]
         action_events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
 
@@ -1388,10 +1712,56 @@ def main() -> None:
             st.sidebar.error(f"Module D error: {e}")
             traceback.print_exc()
 
-    st.title("MagicFinance")
-    st.caption("Reddit-based investment research pipeline")
+    # ── Cyberpunk header ───────────────────────────────────────────────────────
+    signals_for_hud, _ = _load_signals()
+    cond_icon, cond_label, cond_color = _market_condition(signals_for_hud)
+    investable_count = sum(1 for s in signals_for_hud if s.get("is_investable"))
+    avg_conf = (
+        sum(s.get("confidence_level", 0) for s in signals_for_hud) / len(signals_for_hud)
+        if signals_for_hud else 0.0
+    )
+    qdrant_status = "● ONLINE" if params["qdrant_ok"] else "● OFFLINE"
+    qdrant_color = "#00d4aa" if params["qdrant_ok"] else "#f85149"
+    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["Reddit Signals", "Forecasts", "Portfolio", "Investor Arena"])
+    st.markdown(
+        f"""
+        <div style="margin-bottom:4px;">
+          <span class="cp-title">MAGICFINANCE</span>
+        </div>
+        <div class="cp-subtitle">NEURAL INVESTMENT INTERFACE · REDDIT SIGNAL PIPELINE</div>
+        <div class="market-hud" style="margin-top:14px;">
+          <div class="hud-item">
+            <span class="hud-label">SYSTEM</span>
+            <span class="hud-value" style="color:{qdrant_color};">{qdrant_status}</span>
+          </div>
+          <div class="hud-item">
+            <span class="hud-label">MARKET STATUS</span>
+            <span class="hud-value" style="color:{cond_color};">{cond_icon} {cond_label}</span>
+          </div>
+          <div class="hud-item">
+            <span class="hud-label">SIGNALS LOADED</span>
+            <span class="hud-value">{len(signals_for_hud)} total · {investable_count} investable</span>
+          </div>
+          <div class="hud-item">
+            <span class="hud-label">AVG CONFIDENCE</span>
+            <span class="hud-value">{avg_conf:.0%}</span>
+          </div>
+          <div class="hud-item">
+            <span class="hud-label">TIMESTAMP</span>
+            <span class="hud-value">{now_str}</span>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "⚡ Neural Feed",
+        "🔮 Oracle Matrix",
+        "💼 Net Worth",
+        "⚔️ The Arena",
+    ])
 
     with tab1:
         _render_signals_tab(params)

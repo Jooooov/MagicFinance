@@ -35,6 +35,29 @@ else
     echo "   Corre: cd $MLX_DIR && python3 download_models.py"
 fi
 
+# ─── Sync with VPS ────────────────────────────────────────────────────────────
+echo "🔄 A sincronizar com o VPS..."
+python3 - << 'PYEOF'
+import logging, sys
+logging.basicConfig(level=logging.WARNING)
+try:
+    from magicfinance.sync import sync_on_startup
+    r = sync_on_startup()
+    if r["qdrant_ok"]:
+        parts = []
+        if r["events_pulled"] > 0:
+            parts.append(f"{r['events_pulled']} eventos novos")
+        if r["portfolio_updated"]:
+            parts.append("portfolio actualizado")
+        if not parts:
+            parts.append("tudo em dia")
+        print(f"✅ Sinc VPS: {', '.join(parts)}")
+    else:
+        print(f"⚠️  Qdrant offline — sem sinc ({r.get('error','')[:60]})")
+except Exception as e:
+    print(f"⚠️  Erro de sinc (não bloqueante): {e}")
+PYEOF
+
 echo ""
 echo "🚀 A abrir MagicFinance no Streamlit..."
 echo ""

@@ -36,6 +36,7 @@ from magicfinance.config import (
     COLLECTION_FORECAST_HISTORY,
     COLLECTION_RAW_REDDIT,
     COLLECTION_SIM_EVENTS,
+    COLLECTION_PORTFOLIOS,
     VECTOR_DIM,
 )
 
@@ -70,7 +71,7 @@ def ensure_collections() -> None:
     client = get_client()
     existing = {c.name for c in client.get_collections().collections}
 
-    for name in [COLLECTION_REDDIT_SIGNALS, COLLECTION_FORECAST_HISTORY, COLLECTION_RAW_REDDIT, COLLECTION_SIM_EVENTS]:
+    for name in [COLLECTION_REDDIT_SIGNALS, COLLECTION_FORECAST_HISTORY, COLLECTION_RAW_REDDIT, COLLECTION_SIM_EVENTS, COLLECTION_PORTFOLIOS]:
         if name not in existing:
             client.create_collection(
                 collection_name=name,
@@ -294,3 +295,71 @@ def get_sim_events(investor_id: Optional[str] = None, limit: int = 500) -> list[
         with_vectors=False,
     )
     return [hit.payload for hit in results[0]]
+
+
+# ─── Shared portfolio state (VPS <-> Mac sync) ────────────────────────────────
+
+_PORTFOLIO_POINT_ID = 1  # Single document — always ID 1
+
+
+def push_portfolio(portfolios: dict) -> None:
+    """Upload portfolio state to Qdrant so VPS tick can read it, and Mac can restore it."""
+    client = get_client()
+    key = "portfolio_state"
+    point = PointStruct(
+        id=_PORTFOLIO_POINT_ID,
+        vector=_text_to_vector(key),
+        payload={"portfolios": portfolios, "updated_at": datetime.utcnow().isoformat()},
+    )
+    client.upsert(collection_name=COLLECTION_PORTFOLIOS, points=[point])
+    logger.info("Portfolio pushed to Qdrant (%d investors)", len(portfolios))
+
+
+def pull_portfolio() -> Optional[dict]:
+    """Download portfolio state from Qdrant. Returns None if not found."""
+    client = get_client()
+    try:
+        existing = {c.name for c in client.get_collections().collections}
+        if COLLECTION_PORTFOLIOS not in existing:
+            return None
+        results = client.retrieve(
+            collection_name=COLLECTION_PORTFOLIOS,
+            ids=[_PORTFOLIO_POINT_ID],
+            with_payload=True,
+        )
+        if results:
+            return results[0].payload.get("portfolios")
+    except Exception as exc:
+        logger.warning("pull_portfolio failed: %s", exc)
+    return None
+
+
+def pull_and_clear_sim_events(batch_size: int = 2000) -> list[dict]:
+    """
+    Pull all pending sim_events from Qdrant and delete them.
+    Used by Mac sync to drain the VPS event queue into local archive.
+    Returns list of event dicts (sorted by timestamp).
+    """
+    client = get_client()
+    try:
+        existing = {c.name for c in client.get_collections().collections}
+        if COLLECTION_SIM_EVENTS not in existing:
+            return []
+        results, _ = client.scroll(
+            collection_name=COLLECTION_SIM_EVENTS,
+            limit=batch_size,
+            with_payload=True,
+            with_vectors=False,
+        )
+        events = [hit.payload for hit in results]
+        if events:
+            ids = [hit.id for hit in results]
+            client.delete(
+                collection_name=COLLECTION_SIM_EVENTS,
+                points_selector=ids,
+            )
+            logger.info("Pulled and cleared %d sim events from Qdrant", len(events))
+        return sorted(events, key=lambda e: e.get("timestamp", ""))
+    except Exception as exc:
+        logger.warning("pull_and_clear_sim_events failed: %s", exc)
+        return []

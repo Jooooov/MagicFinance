@@ -1,9 +1,15 @@
 """
-MagicFinance — LLM Client (MLX)
-=================================
-Local inference via MLX — no server required, no network latency.
+MagicFinance — LLM Client
+==========================
+Dual-backend: MLX (Apple Silicon / Mac) or Ollama (VPS / Linux x86_64).
 
-Model routing:
+Backend is selected via the LLM_BACKEND environment variable:
+  LLM_BACKEND=mlx     → local Apple Silicon inference via mlx_lm (default)
+  LLM_BACKEND=ollama  → HTTP call to Ollama server (localhost:11434 or OLLAMA_BASE_URL)
+
+Ollama model: OLLAMA_MODEL env var (default: qwen3.5:0.8b)
+
+Model routing (MLX):
   - Qwen3.5 9B (MODEL_9B_PATH): Module A scoring, Module E dynamic weights
   - Qwen3.5 4B (MODEL_4B_PATH): Module D binary forecasting (faster)
 
@@ -19,6 +25,57 @@ from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# ─── Backend selection ────────────────────────────────────────────────────────
+# Set LLM_BACKEND=ollama in .env or cron to use Ollama instead of MLX
+
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL", "qwen3.5:0.8b")
+
+
+def _generate_ollama(
+    prompt: str,
+    system: Optional[str] = None,
+    max_tokens: int = 400,
+    temperature: float = 0.4,
+) -> str:
+    """Send a chat completion request to a local Ollama server."""
+    import requests
+
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+
+    resp = requests.post(
+        f"{OLLAMA_BASE_URL}/api/chat",
+        json={
+            "model": OLLAMA_MODEL,
+            "messages": messages,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+            },
+        },
+        timeout=180,  # 3 min — CPU inference can be slow on 1 core
+    )
+    resp.raise_for_status()
+    return resp.json()["message"]["content"]
+
+
+def check_ollama_server() -> dict:
+    """Ping Ollama server and list available models."""
+    import requests
+    try:
+        resp = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
+        resp.raise_for_status()
+        models = [m["name"] for m in resp.json().get("models", [])]
+        return {"ok": True, "models": models, "target_model": OLLAMA_MODEL,
+                "target_available": any(OLLAMA_MODEL in m for m in models)}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "models": [], "target_available": False}
+
 
 # ─── Model paths ───────────────────────────────────────────────────────────────
 
@@ -67,7 +124,10 @@ def _generate(
     temperature: float = 0.1,
 ) -> str:
     """
-    Run MLX generation with the given model (VLM text-only mode).
+    Generate text via either MLX (local Apple Silicon) or Ollama (VPS).
+    Backend chosen by LLM_BACKEND env var ('mlx' | 'ollama'). Default: mlx.
+
+    model_path is used only for MLX; Ollama uses OLLAMA_MODEL env var instead.
 
     Args:
         model_path: path to the MLX model directory
@@ -79,6 +139,10 @@ def _generate(
     Returns:
         Raw string response from the model.
     """
+    # Route to Ollama on VPS (or any non-Mac environment)
+    if os.getenv("LLM_BACKEND", "mlx").lower() == "ollama":
+        return _generate_ollama(prompt, system=system, max_tokens=max_tokens, temperature=temperature)
+
     from mlx_lm import generate
 
     model, tokenizer = _load_model(model_path)

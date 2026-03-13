@@ -17,6 +17,7 @@ COLLECTION_REDDIT_SIGNALS = "magicfinance_reddit_signals"
 COLLECTION_FORECAST_HISTORY = "magicfinance_forecast_history"
 COLLECTION_RAW_REDDIT = "magicfinance_raw_reddit"
 COLLECTION_SIM_EVENTS = "magicfinance_sim_events"
+COLLECTION_PORTFOLIOS = "magicfinance_portfolios"   # shared portfolio state (VPS <-> Mac)
 
 # Vector dimension for embeddings (text-embedding-3-small compatible, or use simple hash)
 VECTOR_DIM = 384

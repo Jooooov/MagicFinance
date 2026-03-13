@@ -779,6 +779,25 @@ def _render_sidebar() -> dict:
     _status(mlx.get("model_9b_exists", False), "Qwen 9B")
     _status(mlx.get("model_4b_exists", False), "Qwen 4B")
 
+    # Last sync info
+    try:
+        from magicfinance.sync import load_last_sync
+        last_sync = load_last_sync()
+        if last_sync:
+            sync_time = last_sync.get("last_sync", "")[:16].replace("T", " ")
+            n_ev = last_sync.get("events_pulled", 0)
+            sync_ok = last_sync.get("qdrant_ok", False)
+            sync_icon = "🔄" if sync_ok else "⚠️"
+            st.sidebar.markdown(
+                f'<div style="font-size:11px;color:#484f58;font-family:monospace;margin-top:4px;">'
+                f'{sync_icon} Last sync: {sync_time} UTC'
+                + (f'<br>↓ {n_ev} events pulled' if n_ev > 0 else '')
+                + '</div>',
+                unsafe_allow_html=True,
+            )
+    except Exception:
+        pass
+
     if not qdrant_ok:
         if st.sidebar.button("🔄 Reconnect", use_container_width=True):
             _probe_qdrant.clear()

@@ -2131,50 +2131,63 @@ def _render_arena_tab(qdrant_ok: bool) -> None:
 
 # ─── Watchdog Tab ─────────────────────────────────────────────────────────────
 
-def _render_watchdog_tab(params: dict) -> None:
-    """Show Reddit signals as ticker cards with price chart + full DDD breakdown."""
-    signals, is_demo = _load_signals()
+@st.cache_data(ttl=300)
+def _load_watchdog_signals() -> list[dict]:
+    """Load only investable signals (watchdog picks)."""
+    try:
+        from magicfinance.qdrant_client import get_investable_signals, get_all_signals
+        sigs = get_investable_signals()
+        if not sigs:
+            # fallback: all signals filtered locally
+            sigs = [s for s in get_all_signals(limit=500) if s.get("is_investable")]
+        return sorted(sigs, key=lambda s: s.get("signal_timestamp", ""), reverse=True)
+    except Exception:
+        return []
 
-    if is_demo:
-        st.markdown(
-            '<div class="demo-banner">⚠ DEMO MODE — connect Qdrant to see live watchdog data</div>',
-            unsafe_allow_html=True,
-        )
+
+@st.cache_data(ttl=300)
+def _load_ticker_forecasts(ticker: str) -> list[dict]:
+    """Load all forecasts for a specific ticker."""
+    try:
+        from magicfinance.qdrant_client import get_forecast_history
+        return get_forecast_history(ticker=ticker)
+    except Exception:
+        return []
+
+
+def _render_watchdog_tab(params: dict) -> None:
+    """Watchdog: investable tickers only, history, price chart with signal overlay, prediction accuracy."""
+    signals = _load_watchdog_signals()
 
     if not signals:
-        st.info("No signals found. Run Module A to populate.")
-        return
-
-    # Apply filters
-    min_conf = params.get("min_confidence", 0.0)
-    inv_only = params.get("investable_only", False)
-    filtered = [s for s in signals if s.get("confidence_level", 0) >= min_conf]
-    if inv_only:
-        filtered = [s for s in filtered if s.get("is_investable")]
-
-    if not filtered:
-        st.warning("No signals match current filters.")
-        return
-
-    # ── Ticker selector ──────────────────────────────────────────────────────
-    tickers = list({s.get("ticker", "") for s in filtered if s.get("ticker")})
-    tickers.sort()
-
-    col_sel, col_info = st.columns([2, 5])
-    with col_sel:
         st.markdown(
-            '<div style="font-family:\'Share Tech Mono\',monospace;font-size:11px;color:#484f58;'
-            'letter-spacing:1px;margin-bottom:4px;">// SELECT TICKER</div>',
+            '<div class="demo-banner">⚠ No investable signals found — run Module A and wait for scoring</div>',
             unsafe_allow_html=True,
         )
-        selected = st.selectbox("Ticker", tickers, label_visibility="collapsed")
-
-    # Filter to selected ticker signals
-    ticker_signals = [s for s in filtered if s.get("ticker") == selected]
-    if not ticker_signals:
-        st.info("No signals for selected ticker.")
+        # show demo placeholder
+        st.markdown(
+            '<div style="font-family:\'Share Tech Mono\',monospace;color:#484f58;font-size:13px;margin-top:24px;text-align:center;">'
+            '// WATCHDOG OFFLINE — NO INVESTABLE TICKERS IN NEURAL DATABASE //'
+            '</div>',
+            unsafe_allow_html=True,
+        )
         return
-    sig = ticker_signals[0]  # most recent
+
+    # ── Ticker overview cards ─────────────────────────────────────────────────
+    # Group by ticker, pick most recent per ticker
+    ticker_map: dict[str, list] = {}
+    for s in signals:
+        t = s.get("ticker", "")
+        if t:
+            ticker_map.setdefault(t, []).append(s)
+
+    tickers_sorted = sorted(ticker_map.keys())
+
+    st.markdown(
+        f'<div style="font-family:\'Share Tech Mono\',monospace;font-size:11px;color:#484f58;'
+        f'letter-spacing:1px;margin-bottom:12px;">// WATCHDOG PICKS · {len(tickers_sorted)} INVESTABLE TICKERS</div>',
+        unsafe_allow_html=True,
+    )
 
     verdict_map = {
         "STRONG BUY": ("#00d4aa", "▲▲"),
@@ -2184,47 +2197,92 @@ def _render_watchdog_tab(params: dict) -> None:
         "WEAK":       ("#f85149", "▼"),
         "SELL":       ("#f85149", "▼▼"),
     }
-    verdict = sig.get("verdict", sig.get("recommendation", "WATCH")).upper()
-    v_color, v_icon = verdict_map.get(verdict, ("#8b949e", "■"))
 
-    with col_info:
-        conf = sig.get("confidence_level", 0)
-        subreddit = sig.get("source_subreddit", "unknown")
-        ts = sig.get("signal_timestamp", "")[:16].replace("T", " ")
-        is_inv = sig.get("is_investable", False)
-        inv_badge = '<span style="color:#00d4aa;font-size:11px;margin-left:8px;">● INVESTABLE</span>' if is_inv else ""
-        st.markdown(
-            f'<div style="font-family:\'Share Tech Mono\',monospace;">'
-            f'<span style="font-size:28px;color:{v_color};font-weight:700;">{selected}</span>'
-            f'<span style="font-size:16px;color:{v_color};margin-left:12px;">{v_icon} {verdict}</span>'
-            f'{inv_badge}'
-            f'<div style="font-size:11px;color:#484f58;margin-top:2px;">r/{subreddit} · {ts} UTC · conf: {conf:.0%}</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+    # Overview grid (compact cards, 4 per row)
+    cols_per_row = 4
+    ticker_list = tickers_sorted
+    for row_start in range(0, len(ticker_list), cols_per_row):
+        row_tickers = ticker_list[row_start:row_start + cols_per_row]
+        cols = st.columns(len(row_tickers))
+        for col, t in zip(cols, row_tickers):
+            latest = ticker_map[t][0]
+            conf = latest.get("confidence_level", 0)
+            verdict = latest.get("verdict", latest.get("recommendation", "WATCH")).upper()
+            v_color, v_icon = verdict_map.get(verdict, ("#8b949e", "■"))
+            n_signals = len(ticker_map[t])
+            ts = latest.get("signal_timestamp", "")[:10]
+            conf_pct = int(conf * 100)
+            with col:
+                st.markdown(
+                    f'<div class="wd-card" style="cursor:pointer;border-left-color:{v_color};">'
+                    f'<div class="wd-ticker">{t}</div>'
+                    f'<div class="wd-sub">{v_icon} {verdict}</div>'
+                    f'<div class="wd-bar-row" style="margin-top:6px;">'
+                    f'<div class="wd-bar-track" style="flex:1;">'
+                    f'<div class="wd-bar-fill" style="width:{conf_pct}%;background:{v_color};"></div></div>'
+                    f'<span class="wd-bar-val">{conf:.0%}</span></div>'
+                    f'<div style="font-size:10px;color:#484f58;margin-top:4px;">{n_signals} signal{"s" if n_signals>1 else ""} · {ts}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
 
     st.markdown("---")
 
-    left, right = st.columns([3, 2])
+    # ── Ticker detail ─────────────────────────────────────────────────────────
+    st.markdown(
+        '<div style="font-family:\'Share Tech Mono\',monospace;font-size:11px;color:#484f58;'
+        'letter-spacing:1px;margin-bottom:8px;">// SELECT TICKER FOR DEEP ANALYSIS</div>',
+        unsafe_allow_html=True,
+    )
 
-    # ── Score breakdown ──────────────────────────────────────────────────────
-    with left:
+    col_sel, _ = st.columns([2, 5])
+    with col_sel:
+        selected = st.selectbox("Watchdog ticker", tickers_sorted, label_visibility="collapsed")
+
+    if not selected:
+        return
+
+    ticker_signals = ticker_map.get(selected, [])
+    if not ticker_signals:
+        return
+
+    latest_sig = ticker_signals[0]
+    verdict = latest_sig.get("verdict", latest_sig.get("recommendation", "WATCH")).upper()
+    v_color, v_icon = verdict_map.get(verdict, ("#8b949e", "■"))
+    conf = latest_sig.get("confidence_level", 0)
+    subreddit = latest_sig.get("source_subreddit", "unknown")
+
+    st.markdown(
+        f'<div style="font-family:\'Share Tech Mono\',monospace;margin-bottom:12px;">'
+        f'<span style="font-size:32px;color:{v_color};font-weight:700;">{selected}</span>'
+        f'<span style="font-size:16px;color:{v_color};margin-left:12px;">{v_icon} {verdict}</span>'
+        f'<span style="color:#00d4aa;font-size:11px;margin-left:12px;">● WATCHDOG PICK</span>'
+        f'<div style="font-size:11px;color:#484f58;margin-top:2px;">'
+        f'r/{subreddit} · conf: {conf:.0%} · {len(ticker_signals)} historical signal{"s" if len(ticker_signals)>1 else ""}'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    left_col, right_col = st.columns([2, 3])
+
+    # ── DDD Score breakdown ───────────────────────────────────────────────────
+    with left_col:
         st.markdown(
             '<div style="font-family:\'Share Tech Mono\',monospace;font-size:11px;'
-            'color:#484f58;letter-spacing:1px;margin-bottom:8px;">// DUE DILIGENCE BREAKDOWN</div>',
+            'color:#484f58;letter-spacing:1px;margin-bottom:8px;">// DUE DILIGENCE</div>',
             unsafe_allow_html=True,
         )
         score_fields = [
-            ("confidence_level",   "CONFIDENCE"),
-            ("thesis_score",       "THESIS"),
-            ("risk_acknowledgment","RISK ACK"),
-            ("data_quality",       "DATA QUALITY"),
-            ("specificity",        "SPECIFICITY"),
-            ("original_thinking",  "ORIGINALITY"),
+            ("confidence_level",    "CONFIDENCE"),
+            ("thesis_score",        "THESIS"),
+            ("risk_acknowledgment", "RISK ACK"),
+            ("data_quality",        "DATA QUALITY"),
+            ("specificity",         "SPECIFICITY"),
+            ("original_thinking",   "ORIGINALITY"),
         ]
         bars_html = ""
         for key, label in score_fields:
-            val = sig.get(key, 0)
+            val = latest_sig.get(key, 0)
             pct = int(val * 100)
             color = "#00d4aa" if val >= 0.7 else "#d29922" if val >= 0.4 else "#f85149"
             bars_html += (
@@ -2236,95 +2294,217 @@ def _render_watchdog_tab(params: dict) -> None:
             )
         st.markdown(f'<div class="wd-card">{bars_html}</div>', unsafe_allow_html=True)
 
-        # Thesis summary
-        thesis = sig.get("thesis_summary", sig.get("summary", ""))
+        thesis = latest_sig.get("thesis_summary", latest_sig.get("summary", ""))
         if thesis:
             st.markdown(
-                f'<div class="intel-brief">'
-                f'<div class="intel-header">// THESIS</div>'
-                f'{thesis}'
-                f'</div>',
+                f'<div class="intel-brief"><div class="intel-header">// THESIS</div>{thesis}</div>',
                 unsafe_allow_html=True,
             )
 
-        # Risk factors
-        risks = sig.get("risk_factors", [])
+        risks = latest_sig.get("risk_factors", [])
         if risks:
             risk_items = "".join(f"<li style='margin:3px 0;'>{r}</li>" for r in risks[:5])
             st.markdown(
                 f'<div class="intel-brief" style="border-left-color:#f85149;">'
                 f'<div class="intel-header" style="color:#f85149;">// RISK FACTORS</div>'
-                f'<ul style="margin:6px 0 0 16px;padding:0;">{risk_items}</ul>'
-                f'</div>',
+                f'<ul style="margin:6px 0 0 16px;padding:0;">{risk_items}</ul></div>',
                 unsafe_allow_html=True,
             )
 
-    # ── Price chart ──────────────────────────────────────────────────────────
-    with right:
+    # ── Price chart with signal annotations + prediction accuracy ─────────────
+    with right_col:
         st.markdown(
             '<div style="font-family:\'Share Tech Mono\',monospace;font-size:11px;'
-            'color:#484f58;letter-spacing:1px;margin-bottom:8px;">// PRICE CHART (30D)</div>',
+            'color:#484f58;letter-spacing:1px;margin-bottom:8px;">// PRICE CHART + SIGNAL OVERLAY (90D)</div>',
             unsafe_allow_html=True,
         )
         try:
             from magicfinance.yfinance_client import fetch_prices
-            price_df = fetch_prices([selected], lookback_days=30)
+            price_df = fetch_prices([selected], lookback_days=90)
+
             if not price_df.empty and selected in price_df.columns:
                 prices = price_df[selected].dropna()
-                fig = go.Figure()
                 pct_chg = (prices.iloc[-1] - prices.iloc[0]) / prices.iloc[0] if len(prices) > 1 else 0
                 line_color = "#00d4aa" if pct_chg >= 0 else "#f85149"
+
+                fig = go.Figure()
                 fig.add_trace(go.Scatter(
-                    x=prices.index, y=prices.values,
+                    x=prices.index,
+                    y=prices.values,
                     mode="lines",
                     line=dict(color=line_color, width=2),
                     fill="tozeroy",
                     fillcolor=f"{line_color}15",
                     name=selected,
+                    hovertemplate="%{x|%Y-%m-%d}<br>$%{y:.2f}<extra></extra>",
                 ))
+
+                # ── Signal annotations + performance badges ────────────────────
+                hit_count = 0
+                miss_count = 0
+                na_count = 0
+
+                for sig in ticker_signals:
+                    raw_ts = sig.get("signal_timestamp", "")[:10]
+                    if not raw_ts:
+                        continue
+                    sig_verdict = sig.get("verdict", sig.get("recommendation", "WATCH")).upper()
+                    sig_v_color, sig_v_icon = verdict_map.get(sig_verdict, ("#8b949e", "■"))
+
+                    # Find price on or near signal date
+                    try:
+                        sig_date = pd.to_datetime(raw_ts)
+                        # nearest available date
+                        available_dates = prices.index
+                        if len(available_dates) == 0:
+                            continue
+                        nearest_idx = (available_dates - sig_date).abs().argmin()
+                        price_at_signal = prices.iloc[nearest_idx]
+                        current_price = prices.iloc[-1]
+                        actual_return = (current_price - price_at_signal) / price_at_signal if price_at_signal > 0 else 0
+
+                        # Did the prediction come true?
+                        if sig_verdict in ("BUY", "STRONG BUY"):
+                            correct = actual_return > 0.01   # > 1% up
+                        elif sig_verdict in ("SELL", "WEAK"):
+                            correct = actual_return < -0.01  # > 1% down
+                        else:
+                            correct = None  # WATCH/HOLD — neutral
+
+                        outcome_icon = "✅" if correct is True else "❌" if correct is False else "◆"
+                        outcome_color = "#00d4aa" if correct is True else "#f85149" if correct is False else "#d29922"
+
+                        if correct is True:
+                            hit_count += 1
+                        elif correct is False:
+                            miss_count += 1
+                        else:
+                            na_count += 1
+
+                        # Vertical line at signal date
+                        fig.add_vline(
+                            x=sig_date,
+                            line_width=1,
+                            line_dash="dot",
+                            line_color=sig_v_color,
+                        )
+                        # Annotation marker
+                        fig.add_annotation(
+                            x=sig_date,
+                            y=price_at_signal,
+                            text=f"{sig_v_icon} {sig_verdict[:3]}<br>{outcome_icon} {actual_return:+.0%}",
+                            showarrow=True,
+                            arrowhead=2,
+                            arrowcolor=sig_v_color,
+                            arrowsize=0.8,
+                            bgcolor="#0d1117",
+                            bordercolor=sig_v_color,
+                            borderwidth=1,
+                            font=dict(color=sig_v_color, size=9, family="Share Tech Mono"),
+                            ax=0,
+                            ay=-40,
+                        )
+                    except Exception:
+                        continue
+
                 fig.update_layout(
                     template="plotly_dark",
                     paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)",
-                    margin=dict(l=0, r=0, t=20, b=0),
-                    height=220,
+                    margin=dict(l=0, r=0, t=30, b=0),
+                    height=300,
                     showlegend=False,
                     xaxis=dict(showgrid=False, color="#484f58"),
                     yaxis=dict(showgrid=True, gridcolor="#21262d", color="#484f58"),
-                    annotations=[dict(
-                        x=0.02, y=0.95, xref="paper", yref="paper",
-                        text=f"{'▲' if pct_chg>=0 else '▼'} {pct_chg:+.1%} (30d)",
-                        showarrow=False,
-                        font=dict(color=line_color, size=13, family="Share Tech Mono"),
-                    )],
+                    annotations=fig.layout.annotations + (
+                        dict(
+                            x=0.01, y=0.97, xref="paper", yref="paper",
+                            text=f"{'▲' if pct_chg>=0 else '▼'} {pct_chg:+.1%} (90d)",
+                            showarrow=False,
+                            font=dict(color=line_color, size=12, family="Share Tech Mono"),
+                        ),
+                    ),
                 )
                 st.plotly_chart(fig, use_container_width=True)
+
+                # ── Prediction accuracy badge ──────────────────────────────────
+                total_rated = hit_count + miss_count
+                if total_rated > 0:
+                    accuracy = hit_count / total_rated
+                    acc_color = "#00d4aa" if accuracy >= 0.6 else "#d29922" if accuracy >= 0.4 else "#f85149"
+                    acc_label = "ACCURATE" if accuracy >= 0.6 else "MIXED" if accuracy >= 0.4 else "POOR"
+                    st.markdown(
+                        f'<div class="market-hud" style="margin-top:6px;padding:8px 16px;">'
+                        f'<div class="hud-item"><span class="hud-label">PREDICTION ACCURACY</span>'
+                        f'<span class="hud-value" style="color:{acc_color};">{accuracy:.0%} {acc_label}</span></div>'
+                        f'<div class="hud-item"><span class="hud-label">HITS / MISSES</span>'
+                        f'<span class="hud-value"><span style="color:#00d4aa;">✅ {hit_count}</span>'
+                        f' · <span style="color:#f85149;">❌ {miss_count}</span>'
+                        + (f' · <span style="color:#d29922;">◆ {na_count} neutral</span>' if na_count > 0 else '')
+                        + f'</span></div></div>',
+                        unsafe_allow_html=True,
+                    )
             else:
                 st.info("No price data available for this ticker.")
+
         except Exception as e:
             st.warning(f"Price fetch failed: {e}")
 
-    # ── All signals for this ticker ──────────────────────────────────────────
+    # ── Forecasts for this ticker ─────────────────────────────────────────────
+    forecasts = _load_ticker_forecasts(selected)
+    if forecasts:
+        st.markdown("---")
+        st.markdown(
+            f'<div style="font-family:\'Share Tech Mono\',monospace;font-size:11px;'
+            f'color:#484f58;letter-spacing:1px;margin-bottom:8px;">// ORACLE FORECASTS FOR {selected} ({len(forecasts)})</div>',
+            unsafe_allow_html=True,
+        )
+        rows = []
+        for f in forecasts:
+            resolved = f.get("resolved", False)
+            outcome = f.get("actual_outcome")
+            if resolved and outcome is not None:
+                status = "✅ HIT" if outcome else "❌ MISS"
+            elif resolved:
+                status = "✓ Resolved"
+            else:
+                status = "⏳ Pending"
+            rows.append({
+                "Event": f.get("event", "")[:80],
+                "Probability": f.get("forecast_probability", 0),
+                "Status": status,
+                "Date": f.get("signal_timestamp", "")[:10],
+            })
+        df_fc = pd.DataFrame(rows)
+        st.dataframe(
+            df_fc,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Probability": st.column_config.ProgressColumn("Probability", min_value=0, max_value=1),
+            },
+        )
+
+    # ── Signal history ────────────────────────────────────────────────────────
     if len(ticker_signals) > 1:
         st.markdown("---")
         st.markdown(
             f'<div style="font-family:\'Share Tech Mono\',monospace;font-size:11px;'
-            f'color:#484f58;letter-spacing:1px;margin-bottom:8px;">// ALL SIGNALS FOR {selected} ({len(ticker_signals)})</div>',
+            f'color:#484f58;letter-spacing:1px;margin-bottom:8px;">// SIGNAL HISTORY FOR {selected}</div>',
             unsafe_allow_html=True,
         )
-        rows = []
+        rows2 = []
         for s in ticker_signals:
-            rows.append({
-                "Timestamp": s.get("signal_timestamp", "")[:16],
+            rows2.append({
+                "Date": s.get("signal_timestamp", "")[:10],
                 "Subreddit": s.get("source_subreddit", ""),
                 "Confidence": s.get("confidence_level", 0),
                 "Thesis": s.get("thesis_score", 0),
-                "Investable": "✅" if s.get("is_investable") else "—",
                 "Verdict": s.get("verdict", s.get("recommendation", "")),
             })
-        df = pd.DataFrame(rows)
+        df_hist = pd.DataFrame(rows2)
         st.dataframe(
-            df,
+            df_hist,
             use_container_width=True,
             hide_index=True,
             column_config={

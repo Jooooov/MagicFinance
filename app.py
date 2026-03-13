@@ -836,6 +836,53 @@ def _load_investable(min_confidence: float = 0.0) -> tuple[list[dict], str]:
 
 
 @st.cache_data(ttl=300, show_spinner=False)
+def _load_deception_scores() -> dict:
+    """Return dict of ticker → most-recent deception result (from Qdrant)."""
+    try:
+        from magicfinance.qdrant_client import get_deception_scores
+        scores = get_deception_scores()
+        # Keep only the most recent per ticker
+        by_ticker: dict = {}
+        for s in scores:
+            t = s.get("ticker")
+            if t and t not in by_ticker:
+                by_ticker[t] = s
+        return by_ticker
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _load_fear_indicators() -> dict:
+    """Load VIX + S&P drawdown indicators (cached 2min)."""
+    try:
+        from magicfinance.geo_client import get_market_fear_indicators
+        return get_market_fear_indicators()
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _load_macro_headlines() -> str:
+    """Fetch RSS macro headlines (cached 10min)."""
+    try:
+        from magicfinance.geo_client import fetch_macro_headlines
+        return fetch_macro_headlines()
+    except Exception:
+        return "Headlines unavailable."
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_blood_predictions() -> list[dict]:
+    """Load all blood predictions from Qdrant."""
+    try:
+        from magicfinance.qdrant_client import get_all_blood_predictions
+        return get_all_blood_predictions()
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=300, show_spinner=False)
 def _load_mlx_health() -> dict:
     try:
         from magicfinance.llm_client import check_mlx_health
@@ -932,7 +979,7 @@ def _render_mission_control() -> dict:
     )
 
     # ── Interactive controls row ───────────────────────────────────────────────
-    c1, c2, c3, c4, c5, c6 = st.columns([2, 1.2, 1.5, 1.5, 1.5, 1.5])
+    c1, c2, c3, c4, c5, c6, c7 = st.columns([2, 1.2, 1.5, 1.3, 1.3, 1.3, 1.3])
     with c1:
         min_confidence = st.slider("Min confidence", 0.0, 1.0, 0.0, 0.05, label_visibility="collapsed",
                                    help="Min confidence threshold")
@@ -945,6 +992,8 @@ def _render_mission_control() -> dict:
 
     run_clicked = False
     run_d_clicked = False
+    run_c_clicked = False
+    recal_clicked = False
     if not qdrant_ok:
         with c4:
             if st.button("🔄 Reconnect", use_container_width=True):
@@ -958,6 +1007,10 @@ def _render_mission_control() -> dict:
             run_clicked = st.button("▶ MODULE A", use_container_width=True, help="Scrape Reddit → score with Qwen → store signals")
         with c5:
             run_d_clicked = st.button("▶ MODULE D", use_container_width=True, help="Generate binary forecasts from investable signals")
+        with c6:
+            run_c_clicked = st.button("▶ MODULE C", use_container_width=True, help="Deception Detector — analyse SEC filings & earnings calls for evasive language")
+        with c7:
+            recal_clicked = st.button("⚙ RECALIBRATE", use_container_width=True, help="Re-apply calibrated confidence formula to all stored signals")
 
     return {
         "min_confidence": min_confidence,
@@ -965,6 +1018,8 @@ def _render_mission_control() -> dict:
         "posts_per_sub": posts_per_sub,
         "run_clicked": run_clicked,
         "run_d_clicked": run_d_clicked,
+        "run_c_clicked": run_c_clicked,
+        "recal_clicked": recal_clicked,
         "qdrant_ok": qdrant_ok,
     }
 
@@ -980,17 +1035,32 @@ def _run_pipeline(posts_per_sub: int) -> None:
         ensure_collections()
 
     with st.spinner("Fetching Reddit posts…"):
-        posts = fetch_all_subreddits(
-            subreddits=SUBREDDITS,
-            limit=posts_per_sub,
-        )
+        try:
+            posts = fetch_all_subreddits(
+                subreddits=SUBREDDITS,
+                limit=posts_per_sub,
+            )
+        except Exception as e:
+            st.error(f"Reddit API error: {e}")
+            return
+
+    if not posts:
+        st.warning(f"Reddit returned 0 posts from {SUBREDDITS}. Check credentials in .env (REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET) and that Tailscale is up.")
+        return
+
+    st.caption(f"Fetched {len(posts)} posts from {len(SUBREDDITS)} subreddits.")
 
     with st.spinner("Filtering posts with tickers…"):
         filtered = filter_posts_with_tickers(posts)
 
     if not filtered:
-        st.info("No posts with recognisable tickers found.")
+        st.warning(
+            f"Fetched {len(posts)} posts but none had recognisable ticker symbols. "
+            "Posts may be macro/news focused. Try r/stocks or r/SecurityAnalysis with more posts/sub."
+        )
         return
+
+    st.caption(f"{len(filtered)}/{len(posts)} posts contain tickers → scoring…")
 
     stored = 0
     errors = []
@@ -1006,6 +1076,27 @@ def _run_pipeline(posts_per_sub: int) -> None:
             errors.append(f"LLM score failed: {e}")
             progress.progress((i + 1) / len(filtered), text=f"Scoring {i+1}/{len(filtered)}…")
             continue
+
+        # ── Recalibrate confidence with our weighted formula ──────────────────
+        # Qwen tends to understate confidence; we compute it from component scores.
+        _thesis    = scored.get("thesis_score", scored.get("thesis_clarity", 0.0))
+        _spec      = scored.get("specificity", 0.0)
+        _risk_ack  = scored.get("risk_acknowledgment", 0.0)
+        _data_q    = scored.get("data_quality", 0.0)
+        _orig      = scored.get("original_thinking", 0.0)
+        _sentiment = abs(scored.get("sentiment_score", 0.0))
+        _conf = round(min(
+            _thesis * 0.40 + _spec * 0.25 + _risk_ack * 0.20
+            + _data_q * 0.10 + _orig * 0.05 + _sentiment * 0.10,
+            1.0
+        ), 3)
+        scored["confidence_level"] = _conf
+        scored["is_investable"] = (
+            _conf >= 0.60
+            and sum(1 for v in [_thesis, _spec, _risk_ack, _data_q, _orig] if v >= 0.45) >= 3
+        )
+        # ─────────────────────────────────────────────────────────────────────
+
         try:
             scored.setdefault("ticker", tickers[0])
             scored["source_subreddit"] = post.get("subreddit", "unknown")
@@ -1091,6 +1182,55 @@ def _run_module_d() -> None:
     progress.empty()
     st.success(f"Generated {total_forecasts} forecast(s) from {min(len(signals), 10)} signals.")
     _load_forecasts.clear()
+
+
+# ─── Module C runner ──────────────────────────────────────────────────────────
+
+def _run_module_c() -> None:
+    """Run Module C: Deception Detector on all scored tickers → store results."""
+    from magicfinance.deception import run_deception_check
+    from magicfinance.qdrant_client import get_all_signals, upsert_deception_score
+
+    with st.spinner("Loading scored tickers…"):
+        signals = get_all_signals(limit=500)
+
+    if not signals:
+        st.info("No signals in Qdrant. Run Module A first.")
+        return
+
+    # Deduplicate tickers — analyse each ticker once (most recent signal)
+    seen: set[str] = set()
+    tickers = []
+    for s in sorted(signals, key=lambda x: x.get("signal_timestamp", ""), reverse=True):
+        t = s.get("ticker")
+        if t and t not in seen:
+            seen.add(t)
+            tickers.append(t)
+
+    st.caption(f"Running deception analysis on {len(tickers)} unique ticker(s): {', '.join(tickers)}")
+    progress = st.progress(0, text="Analysing executive language…")
+    success_count = 0
+
+    for i, ticker in enumerate(tickers):
+        try:
+            result = run_deception_check(ticker)
+            if result.get("deception_risk_score") is not None:
+                upsert_deception_score(result)
+                success_count += 1
+                score = result["deception_risk_score"]
+                tone = result.get("tone_label", "?")
+                st.caption(f"  {ticker}: {tone} (risk={score:.2f}) [{result.get('source', 'unknown')}]")
+            else:
+                st.caption(f"  {ticker}: ⚠ {result.get('error', 'no data')}")
+        except Exception as e:
+            st.caption(f"  {ticker}: error — {e}")
+        progress.progress((i + 1) / len(tickers), text=f"Analysing {ticker} ({i+1}/{len(tickers)})…")
+
+    progress.empty()
+    if success_count > 0:
+        st.success(f"Module C: {success_count}/{len(tickers)} tickers analysed and stored.")
+    else:
+        st.error("Module C: All tickers failed — check SEC EDGAR connectivity or add FMP_API_KEY to .env")
 
 
 # ─── Tab 1 — Reddit Signals ───────────────────────────────────────────────────
@@ -1276,6 +1416,7 @@ def _render_signals_tab(params: dict) -> None:
     st.markdown("<br>", unsafe_allow_html=True)
 
     # Ticker cards (2 columns)
+    deception_by_ticker = _load_deception_scores()
     cols = st.columns(2)
     for i, signal in enumerate(unique):
         ticker = signal.get("ticker", "?")
@@ -1293,6 +1434,20 @@ def _render_signals_tab(params: dict) -> None:
             'border-radius:4px;font-size:11px;margin-left:6px;">✓ investable</span>'
             if is_inv else ""
         )
+
+        # Deception badge (Module C)
+        dec = deception_by_ticker.get(ticker)
+        dec_html = ""
+        if dec and dec.get("deception_risk_score") is not None:
+            dr = dec["deception_risk_score"]
+            tone = dec.get("tone_label", "?")
+            dec_colour = {"TRANSPARENT": "#00d4aa", "CAUTIOUS": "#d29922",
+                          "EVASIVE": "#f85149", "ALARMING": "#ff0000"}.get(tone, "#8b949e")
+            dec_html = (
+                f'<span style="background:{dec_colour}22;color:{dec_colour};padding:2px 6px;'
+                f'border-radius:4px;font-size:11px;margin-left:6px;" '
+                f'title="Deception risk: {dr:.0%}">⚠ {tone}</span>'
+            )
 
         # Fetch market info (cached)
         info = _fetch_ticker_info(ticker)
@@ -1317,7 +1472,7 @@ def _render_signals_tab(params: dict) -> None:
                 <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;
                             padding:16px;margin-bottom:4px;">
                   <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <span style="color:#e6edf3;font-size:22px;font-weight:700;">{ticker}{inv_badge}</span>
+                    <span style="color:#e6edf3;font-size:22px;font-weight:700;">{ticker}{inv_badge}{dec_html}</span>
                     <span style="color:{verdict_colour};font-weight:600;font-size:14px;">{verdict_label}</span>
                   </div>
                   <div style="color:#8b949e;font-size:12px;margin:4px 0 4px;">
@@ -1344,6 +1499,14 @@ def _render_signals_tab(params: dict) -> None:
                         st.markdown(f"**{key.replace('_', ' ').title()}:** {text}")
                 else:
                     st.caption("No explanation available.")
+                if dec and dec.get("deception_risk_score") is not None:
+                    st.markdown("---")
+                    st.markdown(f"**Module C — Deception Detector** ({dec.get('source', '?')})")
+                    st.markdown(f"Risk: `{dec['deception_risk_score']:.0%}` · Tone: `{dec.get('tone_label', '?')}`")
+                    if dec.get("reasoning"):
+                        st.caption(dec["reasoning"])
+                    if dec.get("key_concerns"):
+                        st.markdown("**Concerns:** " + ", ".join(dec["key_concerns"]))
                 if info:
                     mkt_lines = []
                     mc = info.get("marketCap")
@@ -1859,6 +2022,13 @@ def _render_arena_tab(qdrant_ok: bool) -> None:
             t = s.get("ticker", "")
             if t and t not in prices:
                 prices[t] = 0.0
+
+        # Remove signals whose tickers have no valid market price —
+        # these are false positives (LLC, CNBC, PCE, etc.) that slipped
+        # through ticker extraction on older runs.
+        valid_tickers = {t for t, p in prices.items() if p and p > 0}
+        signals_raw = [s for s in signals_raw if s.get("ticker") in valid_tickers]
+        prices = {t: p for t, p in prices.items() if p and p > 0}
 
         with st.spinner("Running simulation tick — all 10 investors deciding…"):
             try:
@@ -2548,10 +2718,38 @@ def _render_watchdog_tab(params: dict) -> None:
             from magicfinance.yfinance_client import fetch_prices
             price_df = fetch_prices([selected], lookback_days=90)
 
+            # Also fetch SPY for relative context
+            spy_pct_chg = None
+            try:
+                spy_df = fetch_prices(["SPY"], lookback_days=90)
+                if not spy_df.empty and "SPY" in spy_df.columns:
+                    spy_prices = spy_df["SPY"].dropna()
+                    if len(spy_prices) > 1:
+                        spy_pct_chg = (spy_prices.iloc[-1] - spy_prices.iloc[0]) / spy_prices.iloc[0]
+            except Exception:
+                pass
+
             if not price_df.empty and selected in price_df.columns:
                 prices = price_df[selected].dropna()
                 pct_chg = (prices.iloc[-1] - prices.iloc[0]) / prices.iloc[0] if len(prices) > 1 else 0
                 line_color = "#00d4aa" if pct_chg >= 0 else "#f85149"
+
+                # Relative performance vs SPY
+                rel_vs_spy = (pct_chg - spy_pct_chg) if spy_pct_chg is not None else None
+                rel_html = ""
+                if rel_vs_spy is not None:
+                    rel_col = "#00d4aa" if rel_vs_spy >= 0 else "#f85149"
+                    rel_arrow = "▲" if rel_vs_spy >= 0 else "▼"
+                    rel_html = (
+                        f'<span style="color:{rel_col};font-size:11px;margin-left:10px;">'
+                        f'{rel_arrow} {rel_vs_spy:+.1%} vs SPY ({spy_pct_chg:+.1%})</span>'
+                    )
+                    st.markdown(
+                        f'<div style="color:{line_color};font-size:13px;margin-bottom:6px;">'
+                        f'{"▲" if pct_chg>=0 else "▼"} <b>{pct_chg:+.1%}</b> (90d){rel_html}'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
 
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
@@ -2564,6 +2762,23 @@ def _render_watchdog_tab(params: dict) -> None:
                     name=selected,
                     hovertemplate="%{x|%Y-%m-%d}<br>$%{y:.2f}<extra></extra>",
                 ))
+
+                # SPY normalised overlay (dashed grey)
+                if spy_pct_chg is not None:
+                    spy_norm = spy_df["SPY"].dropna()
+                    # Normalise SPY to start at same price as the ticker
+                    if len(spy_norm) > 1 and len(prices) > 1:
+                        start_price = prices.iloc[0]
+                        spy_base = spy_norm.iloc[0]
+                        spy_scaled = spy_norm / spy_base * start_price
+                        fig.add_trace(go.Scatter(
+                            x=spy_scaled.index,
+                            y=spy_scaled.values,
+                            mode="lines",
+                            line=dict(color="#484f58", width=1, dash="dot"),
+                            name="SPY (normalised)",
+                            hovertemplate="SPY %{x|%Y-%m-%d}<br>$%{y:.2f}<extra></extra>",
+                        ))
 
                 # ── Signal annotations + performance badges ────────────────────
                 hit_count = 0
@@ -2637,19 +2852,17 @@ def _render_watchdog_tab(params: dict) -> None:
                     template="plotly_dark",
                     paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)",
-                    margin=dict(l=0, r=0, t=30, b=0),
+                    margin=dict(l=0, r=0, t=10, b=0),
                     height=300,
-                    showlegend=False,
+                    showlegend=spy_pct_chg is not None,
+                    legend=dict(
+                        x=0.01, y=0.97,
+                        bgcolor="rgba(0,0,0,0)",
+                        font=dict(color="#484f58", size=10),
+                    ),
                     xaxis=dict(showgrid=False, color="#484f58"),
                     yaxis=dict(showgrid=True, gridcolor="#21262d", color="#484f58"),
-                    annotations=fig.layout.annotations + (
-                        dict(
-                            x=0.01, y=0.97, xref="paper", yref="paper",
-                            text=f"{'▲' if pct_chg>=0 else '▼'} {pct_chg:+.1%} (90d)",
-                            showarrow=False,
-                            font=dict(color=line_color, size=12, family="Share Tech Mono"),
-                        ),
-                    ),
+                    annotations=fig.layout.annotations,
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
@@ -2742,6 +2955,274 @@ def _render_watchdog_tab(params: dict) -> None:
                 "Thesis":     st.column_config.ProgressColumn("Thesis",     min_value=0, max_value=1),
             },
         )
+
+
+# ─── Tab 6 — Blood in the Streets ─────────────────────────────────────────────
+
+def _render_blood_tab(params: dict) -> None:
+    """
+    Module F — Blood in the Streets.
+    When there's blood in the streets, find what to buy.
+    """
+    from magicfinance.geo_client import is_blood_mode
+    from magicfinance.blood_scanner import get_blood_accuracy_stats
+
+    qdrant_ok = params.get("qdrant_ok", False)
+
+    # ── Fear indicators & blood mode detection ─────────────────────────────────
+    indicators = _load_fear_indicators()
+    blood, reason, _ = is_blood_mode(indicators)
+
+    vix = indicators.get("vix")
+    spy30 = indicators.get("spy_30d_pct")
+    spy5  = indicators.get("spy_5d_pct")
+
+    vix_str   = f"VIX {vix:.1f}" if vix else "VIX N/A"
+    spy30_str = f"SPY {spy30:+.1%} (30d)" if spy30 is not None else ""
+    spy5_str  = f"SPY {spy5:+.1%} (5d)"  if spy5  is not None else ""
+
+    if blood:
+        mode_color  = "#f85149"
+        mode_label  = "🩸 BLOOD MODE ACTIVE"
+        hud_bg      = "rgba(248,81,73,0.08)"
+        border_color= "#f8514940"
+    else:
+        mode_color  = "#00d4aa"
+        mode_label  = "🟢 MARKET CALM"
+        hud_bg      = "rgba(0,212,170,0.05)"
+        border_color= "#00d4aa30"
+
+    st.markdown(
+        f"""<div style="background:{hud_bg};border:1px solid {border_color};
+            border-radius:8px;padding:16px 20px;margin-bottom:16px;">
+          <div style="color:{mode_color};font-family:'Share Tech Mono',monospace;
+              font-size:18px;font-weight:700;letter-spacing:2px;">{mode_label}</div>
+          <div style="color:#8b949e;font-size:13px;margin-top:6px;font-family:'Share Tech Mono',monospace;">
+            {vix_str}{"  ·  "+spy5_str if spy5_str else ""}{"  ·  "+spy30_str if spy30_str else ""}
+            {"  ·  "+reason if blood else ""}
+          </div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+    if not blood:
+        st.markdown(
+            '<div style="color:#484f58;font-family:\'Share Tech Mono\',monospace;'
+            'font-size:14px;text-align:center;padding:40px;">Stand by — no panic in the streets yet.<br>'
+            '<span style="font-size:11px;color:#30363d;">Module F activates when VIX > 25 or S&P drops sharply.</span></div>',
+            unsafe_allow_html=True,
+        )
+        # Still show scoreboard if we have past predictions
+        _render_blood_scoreboard()
+        return
+
+    # ── Macro context ──────────────────────────────────────────────────────────
+    headlines = _load_macro_headlines()
+    with st.expander("📰 Current macro context (RSS headlines)", expanded=False):
+        st.markdown(
+            f'<div style="color:#8b949e;font-size:12px;font-family:\'Share Tech Mono\',monospace;'
+            f'line-height:1.8;">{headlines.replace(chr(10), "<br>")}</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Scan button ────────────────────────────────────────────────────────────
+    col_btn, col_info = st.columns([1, 3])
+    with col_btn:
+        scan_clicked = st.button(
+            "🩸 SCAN OPPORTUNITIES",
+            use_container_width=True,
+            disabled=not qdrant_ok,
+            help="Find oversold tickers with intact thesis — LLM explains each opportunity",
+        )
+    with col_info:
+        st.caption("Scans all Qdrant tickers: drawdown > 4% + thesis > 0.45 → LLM geo-externality check")
+
+    if scan_clicked:
+        _run_blood_scan(indicators, headlines)
+
+    # ── Active predictions from Qdrant ─────────────────────────────────────────
+    st.markdown(
+        '<div style="color:#484f58;font-family:\'Share Tech Mono\',monospace;'
+        'font-size:11px;letter-spacing:1px;margin:16px 0 8px;">// ACTIVE OPPORTUNITIES</div>',
+        unsafe_allow_html=True,
+    )
+
+    predictions = _load_blood_predictions()
+    pending = [p for p in predictions if not p.get("resolved")]
+
+    if not pending:
+        st.markdown(
+            '<div style="color:#484f58;font-size:13px;padding:20px 0;">'
+            'No active predictions — click SCAN OPPORTUNITIES to generate new ones.</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        for i, pred in enumerate(pending[:10], 1):
+            ticker  = pred.get("ticker", "?")
+            score   = pred.get("blood_opportunity_score", 0)
+            draw    = pred.get("drawdown_30d", 0)
+            entry   = pred.get("entry_price", 0)
+            target  = pred.get("predicted_return_pct", 0)
+            window  = pred.get("prediction_window_days", 30)
+            rationale = pred.get("entry_rationale", "")
+            caveat  = pred.get("risk_caveat", "")
+            verdict = pred.get("red_market_verdict", "WAIT")
+            pred_date = pred.get("prediction_date", "")[:10]
+            res_date  = pred.get("resolution_date", "")
+
+            verdict_col = "#00d4aa" if verdict == "BUY_DIP" else "#d29922"
+            bar_w = int(score * 100)
+
+            st.markdown(
+                f"""<div style="background:#161b22;border:1px solid #21262d;border-radius:8px;
+                    padding:16px;margin-bottom:10px;">
+                  <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                    <div>
+                      <span style="color:#e6edf3;font-size:20px;font-weight:700;
+                          font-family:'Share Tech Mono',monospace;">#{i} {ticker}</span>
+                      <span style="color:{verdict_col};font-size:12px;margin-left:10px;
+                          font-family:'Share Tech Mono',monospace;">{verdict}</span>
+                    </div>
+                    <div style="text-align:right;color:#8b949e;font-size:11px;">
+                      Predicted {pred_date}<br>Resolves {res_date}
+                    </div>
+                  </div>
+                  <div style="margin:8px 0 4px;">
+                    <div style="background:#21262d;border-radius:2px;height:4px;width:100%;">
+                      <div style="background:linear-gradient(90deg,#f85149,#d29922,#00d4aa);
+                          width:{bar_w}%;height:100%;border-radius:2px;"></div>
+                    </div>
+                    <div style="color:#8b949e;font-size:11px;margin-top:3px;">
+                      Blood score: <b style="color:#e6edf3;">{score:.0%}</b>
+                    </div>
+                  </div>
+                  <div style="color:#8b949e;font-size:12px;margin:6px 0;">
+                    Down <span style="color:#f85149;">{draw:+.1%}</span> (30d)  ·
+                    Entry <span style="color:#e6edf3;">${entry:.2f}</span>  ·
+                    Target <span style="color:#00d4aa;">+{target:.1f}%</span> in {window}d
+                  </div>
+                  <div style="color:#c9d1d9;font-size:13px;font-style:italic;
+                      border-left:2px solid {verdict_col};padding-left:8px;margin:8px 0 4px;">
+                    {rationale}
+                  </div>
+                  {"<div style='color:#484f58;font-size:11px;'>⚠ " + caveat + "</div>" if caveat else ""}
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
+    # ── Scoreboard ─────────────────────────────────────────────────────────────
+    _render_blood_scoreboard()
+
+
+def _run_blood_scan(indicators: dict, headlines: str) -> None:
+    """Execute Module F scan: load signals → fetch prices → LLM analysis → store predictions."""
+    from magicfinance.yfinance_client import fetch_prices
+    from magicfinance.blood_scanner import scan_opportunities, build_prediction
+    from magicfinance.qdrant_client import get_all_signals, upsert_blood_prediction
+
+    with st.spinner("Loading signals from Qdrant…"):
+        signals = get_all_signals(limit=500)
+        # Only keep Reddit signals (exclude deception records)
+        signals = [s for s in signals if s.get("thesis_score") is not None]
+
+    if not signals:
+        st.info("No signals in Qdrant. Run Module A first.")
+        return
+
+    tickers = list({s["ticker"] for s in signals if s.get("ticker")})
+    st.caption(f"Fetching 30-day prices for {len(tickers)} tickers…")
+
+    try:
+        df_now  = fetch_prices(tickers, lookback_days=5)
+        df_30d  = fetch_prices(tickers, lookback_days=35)
+        prices_now  = {t: float(df_now[t].dropna().iloc[-1])  for t in tickers if t in df_now.columns and not df_now[t].dropna().empty}
+        prices_30d  = {t: float(df_30d[t].dropna().iloc[0])   for t in tickers if t in df_30d.columns and not df_30d[t].dropna().empty}
+    except Exception as e:
+        st.error(f"Price fetch failed: {e}")
+        return
+
+    with st.spinner("Scanning for blood opportunities (LLM analysis per ticker)…"):
+        opps = scan_opportunities(
+            signals=signals,
+            prices_30d=prices_30d,
+            prices_now=prices_now,
+            headlines=headlines,
+            fear_indicators=indicators,
+        )
+
+    if not opps:
+        st.info("No tickers qualify (need drawdown > 4% + thesis > 0.45). Try running Module A to get more signals.")
+        return
+
+    buy_dip = [o for o in opps if o.get("red_market_verdict") == "BUY_DIP"]
+    st.success(f"Found {len(buy_dip)} BUY_DIP opportunities from {len(opps)} candidates.")
+
+    stored = 0
+    for opp in opps:
+        try:
+            pred = build_prediction(opp)
+            upsert_blood_prediction(pred)
+            stored += 1
+        except Exception as e:
+            st.caption(f"  {opp.get('ticker')}: store failed — {e}")
+
+    if stored:
+        _load_blood_predictions.clear()
+        st.caption(f"Stored {stored} predictions in Qdrant. They will auto-resolve on {opps[0].get('prediction_window_days', 30)}-day windows.")
+
+
+def _render_blood_scoreboard() -> None:
+    """Render the prediction accuracy scoreboard section."""
+    from magicfinance.blood_scanner import get_blood_accuracy_stats
+
+    predictions = _load_blood_predictions()
+    if not predictions:
+        return
+
+    stats = get_blood_accuracy_stats(predictions)
+    resolved = stats["resolved"]
+
+    st.markdown(
+        '<div style="color:#484f58;font-family:\'Share Tech Mono\',monospace;'
+        'font-size:11px;letter-spacing:1px;margin:20px 0 8px;">// PREDICTION SCOREBOARD</div>',
+        unsafe_allow_html=True,
+    )
+
+    c1, c2, c3, c4 = st.columns(4)
+    _metric(c1, "PREDICTIONS", str(stats["total"]), f"{stats['pending']} pending")
+    _metric(c2, "HIT RATE", f"{stats['hit_rate']:.0%}" if resolved else "—", f"{stats['hit_count']}H / {stats['miss_count']}M" if resolved else "no resolved yet")
+    _metric(c3, "AVG PREDICTED", f"+{stats['avg_predicted_pct']:.1f}%" if resolved else "—", "target return")
+    _metric(c4, "AVG ACTUAL", f"{stats['avg_actual_pct']:+.1f}%" if resolved else "—",
+            f"bias {stats['calibration_bias']:+.1f}%" if resolved else "resolves in days")
+
+    # Resolved predictions table
+    resolved_preds = [p for p in predictions if p.get("resolved") and p.get("outcome")]
+    if resolved_preds:
+        st.markdown("<br>", unsafe_allow_html=True)
+        for pred in resolved_preds[:8]:
+            ticker  = pred.get("ticker", "?")
+            outcome = pred.get("outcome", "?")
+            pred_r  = pred.get("predicted_return_pct", 0)
+            act_r   = pred.get("actual_return_pct", 0)
+            res_date= pred.get("resolved_at", pred.get("resolution_date", ""))[:10]
+
+            out_col = {"HIT": "#00d4aa", "PARTIAL": "#d29922", "MISS": "#f85149"}.get(outcome, "#8b949e")
+            out_icon = {"HIT": "✅", "PARTIAL": "◑", "MISS": "❌"}.get(outcome, "◆")
+
+            st.markdown(
+                f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                f'padding:6px 12px;background:#161b22;border-radius:4px;margin-bottom:4px;'
+                f'border-left:3px solid {out_col};">'
+                f'<span style="color:#e6edf3;font-family:\'Share Tech Mono\',monospace;">'
+                f'{out_icon} <b>{ticker}</b></span>'
+                f'<span style="color:#8b949e;font-size:12px;">'
+                f'predicted <b style="color:#e6edf3;">+{pred_r:.1f}%</b>  →  '
+                f'actual <b style="color:{out_col};">{act_r:+.1f}%</b>'
+                f'</span>'
+                f'<span style="color:#484f58;font-size:11px;">{res_date}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
@@ -2870,12 +3351,46 @@ def main() -> None:
             st.error(f"Module D error: {e}")
             traceback.print_exc()
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    if params.get("run_c_clicked"):
+        try:
+            _run_module_c()
+        except Exception as e:
+            st.error(f"Module C error: {e}")
+            traceback.print_exc()
+
+    if params.get("recal_clicked"):
+        try:
+            from magicfinance.qdrant_client import recalibrate_all_signals, purge_invalid_ticker_signals
+            with st.spinner("Purging invalid tickers (CNBC, LLC, PCE…)…"):
+                purged = purge_invalid_ticker_signals()
+            if purged:
+                st.info(f"Purged: {', '.join(f'{t}×{n}' for t, n in purged.items())}")
+            with st.spinner("Recalibrating confidence scores…"):
+                r = recalibrate_all_signals()
+            st.success(f"Recalibrated {r['updated']} signal(s). Reload the page to see updated scores.")
+            _load_signals.clear()
+            _load_investable.clear()
+            _load_deception_scores.clear()
+        except Exception as e:
+            st.error(f"Recalibration error: {e}")
+
+    # ── Auto-resolve expired blood predictions (silent, on every load) ───────────
+    if params["qdrant_ok"]:
+        try:
+            from magicfinance.blood_scanner import auto_resolve_predictions
+            resolved_now = auto_resolve_predictions()
+            if resolved_now:
+                _load_blood_predictions.clear()
+        except Exception:
+            pass
+
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "⚡ Neural Feed",
         "🔮 Oracle Matrix",
         "💼 Net Worth",
         "⚔️ The Arena",
         "📡 Watchdog",
+        "🩸 Blood",
     ])
 
     with tab1:
@@ -2892,6 +3407,9 @@ def main() -> None:
 
     with tab5:
         _render_watchdog_tab(params)
+
+    with tab6:
+        _render_blood_tab(params)
 
 
 if __name__ == "__main__":

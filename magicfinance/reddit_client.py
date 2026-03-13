@@ -38,6 +38,20 @@ _TICKER_BLACKLIST = {
     "NYT", "WSJ", "CNN", "BBC", "CNBC", "WTI", "USD", "EUR", "GBP",
     "DXY", "VIX", "SPX", "SPY", "QQQ", "DJI", "RUT", "BTC", "ETH",
     "RE", "IT", "ALL", "ANY", "NOW", "NEW", "OLD", "BIG", "WELL",
+    # Legal / corporate suffixes
+    "LLC", "LLP", "INC", "CORP", "LTD", "PLC", "AG", "SA", "NV", "SE",
+    # Financial data / index providers
+    "LSEG", "MSCI", "FTSE", "DJIA", "CCCMC", "CBOE",
+    # Common English words that pass regex but aren't tickers
+    "GO", "NO", "SO", "DO", "MY", "HE", "WE", "ME", "UP", "OK",
+    "YES", "NOT", "HOW", "WHO", "WHY", "GET", "GOT", "HAS", "HAD",
+    "MAY", "CAN", "WAS", "HIS", "HER", "OUR", "OUT", "OFF", "TOO",
+    "TWO", "ONE", "YEAR", "YEARS", "HIGH", "LOW", "RATE", "RATES",
+    "BANK", "FUND", "LOAN", "DEBT", "CASH", "COST", "RISK", "LOSS",
+    "GROWTH", "STOCK", "SHARE", "MARKET", "TRADE", "PRICE", "VALUE",
+    # Regulatory / financial acronyms
+    "SEC", "FINRA", "CFPB", "CFTC", "IMF", "WTO", "WEF", "BIS",
+    "MBS", "CLO", "CDO", "ABS", "REIT", "SPAC", "SPV", "NAV",
 }
 
 
